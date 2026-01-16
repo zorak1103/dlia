@@ -64,64 +64,54 @@ func UpdateServiceKB(containerName string, analysis *chunking.AnalyzeResult, cfg
 }
 
 func pruneEntries(content string, retention time.Duration) string {
-	parts := strings.Split(content, "\n---\n")
-	if len(parts) == 0 {
+	const headerMarker = "## Service History\n"
+
+	headerEnd := strings.Index(content, headerMarker)
+	if headerEnd == -1 {
 		return content
 	}
 
 	cutoff := time.Now().Add(-retention)
+	headerSection := content[:headerEnd+len(headerMarker)]
+	entriesSection := content[headerEnd+len(headerMarker):]
 
-	// We will rebuild the content
-	var newContentBuilder strings.Builder
+	var builder strings.Builder
+	builder.WriteString(headerSection)
 
-	// Find where the entries start. They start after "## Service History\n"
-	headerEnd := strings.Index(content, "## Service History\n")
-	if headerEnd == -1 {
-		// Fallback: just return content if structure is unexpected
-		return content
-	}
-
-	// Keep the header
-	headerSection := content[:headerEnd+len("## Service History\n")]
-	newContentBuilder.WriteString(headerSection)
-
-	entriesSection := content[headerEnd+len("## Service History\n"):]
-
-	// Split entries by the separator used in UpdateServiceKB: "\n---\n"
-	// Note: newEntry := ... + "---\n"
-	// So entries are separated by "---\n" effectively.
-
-	rawEntries := strings.Split(entriesSection, "---\n")
-
-	for _, entry := range rawEntries {
+	for _, entry := range strings.Split(entriesSection, "---\n") {
 		if strings.TrimSpace(entry) == "" {
 			continue
 		}
 
-		// Extract timestamp
-		// Format: "\n### Scan: 2023-10-25T..."
-		lines := strings.Split(entry, "\n")
-		var timestampStr string
-		for _, line := range lines {
-			if strings.HasPrefix(strings.TrimSpace(line), "### Scan:") {
-				timestampStr = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "### Scan:"))
-				break
-			}
+		if !isEntryExpired(entry, cutoff) {
+			builder.WriteString(entry)
+			builder.WriteString("---\n")
 		}
-
-		if timestampStr != "" {
-			t, err := time.Parse(time.RFC3339, timestampStr)
-			if err == nil {
-				if t.Before(cutoff) {
-					continue // Skip old entry
-				}
-			}
-		}
-
-		// Keep entry
-		newContentBuilder.WriteString(entry)
-		newContentBuilder.WriteString("---\n")
 	}
 
-	return newContentBuilder.String()
+	return builder.String()
+}
+
+func isEntryExpired(entry string, cutoff time.Time) bool {
+	timestamp := extractEntryTimestamp(entry)
+	if timestamp == "" {
+		return false
+	}
+
+	t, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		return false
+	}
+
+	return t.Before(cutoff)
+}
+
+func extractEntryTimestamp(entry string) string {
+	for _, line := range strings.Split(entry, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "### Scan:") {
+			return strings.TrimSpace(strings.TrimPrefix(trimmed, "### Scan:"))
+		}
+	}
+	return ""
 }

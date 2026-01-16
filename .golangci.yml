@@ -169,7 +169,7 @@ linters:
         - G307  # Can be too strict about defer Close()
       
     gocognit:
-      min-complexity: 23
+      min-complexity: 15
       
     funlen:
       lines: 60

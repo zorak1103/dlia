@@ -109,25 +109,8 @@ jobs:
         run: go build -n .
 
   # ============================================================================
-  # SECURITY - Security Scans
+  # SECURITY - Vulnerability Scanning
   # ============================================================================
-
-  gosec:
-    name: gosec Security Scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install gosec
-        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
-
-      - name: Run gosec
-        run: gosec ./cmd/... ./internal/...
 
   govulncheck:
     name: govulncheck
