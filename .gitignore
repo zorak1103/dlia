@@ -1,0 +1,50 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+dlia
+dlia.exe
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Go cache directories (CI/CD)
+.go/
+.cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment files (contains secrets)
+.env
+
+# DLIA specific
+/reports/
+/knowledge_base/
+state.json
+logs/
+
+.clavix/
+.clinerules/
+.windsurf/
+.clavix.old/
+.clinerules.old/
+
+# Config files with potential secrets
+config.yaml
+# Keep example configs
+!config.yaml.example
+!.env.example
+.claude/settings.local.json

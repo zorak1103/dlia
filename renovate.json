@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "customManagers:dockerfileVersions",
+    ":dependencyDashboard",
+    ":semanticPrefixFixDepsChoreOthers",
+    ":ignoreUnstable",
+    "workarounds:all"
+  ],
+  "gitAuthor": "renovate-bot <renovate@github.com>",
+  "branchPrefix": "renovate/",
+  "commitMessagePrefix": "chore(deps): ",
+  "packageRules": [
+    {
+      "matchManagers": ["gomod"],
+      "addLabels": ["dependency"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["major"],
+      "addLabels": ["dependency", "major"]
+    }
+  ],
+  "gomod": {
+    "managerFilePatterns": ["/go\\.mod$/"]
+  }
+}

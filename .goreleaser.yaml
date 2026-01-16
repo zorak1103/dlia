@@ -1,0 +1,88 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/zorak1103/dlia/internal/version.Version={{.Version}}
+      - -X github.com/zorak1103/dlia/internal/version.GitCommit={{.Commit}}
+      - -X github.com/zorak1103/dlia/internal/version.BuildDate={{.Date}}
+
+archives:
+  - name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+
+nfpms:
+  - id: packages
+    package_name: dlia
+    vendor: zorak1103
+    homepage: https://github.com/zorak1103/dlia
+    maintainer: zorak1103
+    description: Docker Log Intelligence Agent - AI-powered Docker log analysis tool
+    license: MIT
+    
+    formats:
+      - deb
+      - rpm
+      - apk
+      - archlinux
+    
+    bindir: /usr/bin
+    
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/dlia/LICENSE
+      - src: README.md
+        dst: /usr/share/doc/dlia/README.md
+    
+    # RPM specific
+    rpm:
+      group: Applications/System
+      compression: lzma
+    
+    # DEB specific
+    deb:
+      compression: xz
+    
+    # Arch Linux specific
+    archlinux:
+      pkgbase: dlia
+      packager: zorak1103
+
+release:
+  github:
+    owner: zorak1103
+    name: dlia
