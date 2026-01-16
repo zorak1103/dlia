@@ -1,0 +1,16 @@
+services:
+  renovate:
+    image: renovate/renovate:latest
+    container_name: renovate_bot
+    volumes:
+      - ..:/usr/src/app
+      - ../renovate.json:/opt/renovate/config.json:ro
+    environment:
+      - RENOVATE_TOKEN=${RENOVATE_TOKEN}
+      - RENOVATE_PLATFORM=gitlab
+      - RENOVATE_ENDPOINT=https://gitlab.com/api/v4
+      - LOG_LEVEL=info
+      - RENOVATE_CONFIG_FILE=/opt/renovate/config.json
+      - RENOVATE_FORCE={"schedule":null}  
+    command: >
+      zorak1103/dlia

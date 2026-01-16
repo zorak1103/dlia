@@ -1,0 +1,281 @@
+@startuml DLIA Class Diagram
+!theme plain
+title DLIA - Class/Structure Diagram
+
+skinparam backgroundColor #FFFFFF
+skinparam class {
+    BackgroundColor #E8F4FD
+    BorderColor #2980B9
+    ArrowColor #2980B9
+}
+skinparam interface {
+    BackgroundColor #FFF3CD
+    BorderColor #856404
+}
+skinparam package {
+    BackgroundColor #F8F9FA
+    BorderColor #6C757D
+}
+
+package "internal/docker" {
+    interface ClientInterface <<interface>> {
+        +Ping(ctx context.Context) error
+        +Close() error
+        +ListContainers(ctx, opts FilterOptions) ([]Container, error)
+        +ReadLogsSince(ctx, containerID string, since time.Time) ([]LogEntry, error)
+    }
+    
+    class Client {
+        -cli ClientInterface
+        +Close() error
+        +Ping(ctx context.Context) error
+        +ListContainers(ctx, opts FilterOptions) ([]Container, error)
+        +ReadLogsSince(ctx, containerID, since) ([]LogEntry, error)
+    }
+    
+    class dockerClientWrapper {
+        -cli *client.Client
+        +Ping(ctx context.Context) error
+        +Close() error
+        +ListContainers(ctx, opts FilterOptions) ([]Container, error)
+        +ReadLogsSince(ctx, containerID, since) ([]LogEntry, error)
+    }
+    
+    class Container <<struct>> {
+        +ID string
+        +Name string
+        +Status string
+        +State string
+        +Image string
+        +Created int64
+        +Labels map[string]string
+    }
+    
+    class LogEntry <<struct>> {
+        +Timestamp string
+        +Stream string
+        +Message string
+    }
+    
+    class FilterOptions <<struct>> {
+        +NamePattern string
+        +IncludeAll bool
+    }
+    
+    ClientInterface <|.. dockerClientWrapper
+    Client o-- ClientInterface
+}
+
+package "internal/llm" {
+    interface ClientInterface <<interface>> {
+        +Analyze(ctx, systemPrompt, userPrompt string) (string, *TokenUsage, error)
+        +SummarizeChunk(ctx, systemPrompt, chunkPrompt string) (string, error)
+        +ChatCompletion(ctx, messages []ChatMessage, temp float64, maxTok int) (*ChatResponse, error)
+    }
+    
+    class Client {
+        -baseURL string
+        -apiKey string
+        -model string
+        -httpClient *http.Client
+        +Analyze(ctx, systemPrompt, userPrompt) (string, *TokenUsage, error)
+        +SummarizeChunk(ctx, systemPrompt, chunkPrompt) (string, error)
+        +ChatCompletion(ctx, messages, temp, maxTok) (*ChatResponse, error)
+    }
+    
+    class ChatMessage <<struct>> {
+        +Role string
+        +Content string
+    }
+    
+    class ChatRequest <<struct>> {
+        +Model string
+        +Messages []ChatMessage
+        +Temperature float64
+        +MaxTokens int
+        +TopP float64
+    }
+    
+    class ChatResponse <<struct>> {
+        +ID string
+        +Object string
+        +Created int64
+        +Model string
+        +Choices []Choice
+        +Usage TokenUsage
+        +Error *APIError
+    }
+    
+    class TokenUsage <<struct>> {
+        +PromptTokens int
+        +CompletionTokens int
+        +TotalTokens int
+    }
+    
+    class Choice <<struct>> {
+        +Index int
+        +Message ChatMessage
+        +FinishReason string
+    }
+    
+    ClientInterface <|.. Client
+    ChatResponse *-- Choice
+    ChatResponse *-- TokenUsage
+    ChatRequest *-- ChatMessage
+}
+
+package "internal/chunking" {
+    interface TokenizerInterface <<interface>> {
+        +CountTokens(text string) int
+        +EstimateSystemPromptTokens(prompt string) int
+    }
+    
+    class Pipeline {
+        -tokenizer TokenizerInterface
+        -client llm.ClientInterface
+        -maxTokens int
+        -ignoreDir string
+        +AnalyzeLogs(ctx, containerName string, logs []LogEntry) (*AnalyzeResult, error)
+        -analyzeDirectly(ctx, name string, logs []LogEntry, sysPrompt, logsText string) (string, *TokenUsage, error)
+        -analyzeWithChunking(ctx, name string, logs []LogEntry, sysPrompt string, availTok int) (string, int, error)
+    }
+    
+    class Tokenizer {
+        -encoding *tiktoken.Tiktoken
+        +CountTokens(text string) int
+        +EstimateSystemPromptTokens(prompt string) int
+    }
+    
+    class AnalyzeResult <<struct>> {
+        +Analysis string
+        +TokensUsed int
+        +ChunksUsed int
+        +Deduplicated bool
+        +OriginalCount int
+        +ProcessedCount int
+    }
+    
+    class LogChunk <<struct>> {
+        +Entries []LogEntry
+        +TokenCount int
+    }
+    
+    TokenizerInterface <|.. Tokenizer
+    Pipeline o-- TokenizerInterface
+    Pipeline o-- "internal/llm".ClientInterface
+}
+
+package "internal/state" {
+    class State {
+        +Version string
+        +LastUpdated time.Time
+        +Containers map[string]*Container
+        -mu sync.RWMutex
+        -filePath string
+        -modified bool
+        +{static} Load(filePath string) (*State, error)
+        +Save() error
+        +GetLastScan(containerID string) (time.Time, bool)
+        +UpdateContainer(containerID, name string, lastScan time.Time, cursor string)
+        +RemoveContainer(containerID string)
+        +ResetAll() error
+        +ResetFiltered(pattern string) (int, error)
+        +GetAllContainers() map[string]*Container
+        +Count() int
+        +Delete() error
+    }
+    
+    class Container <<struct>> {
+        +Name string
+        +LastScan time.Time
+        +LogCursor string
+    }
+    
+    State *-- Container
+}
+
+package "internal/config" {
+    class Config <<struct>> {
+        +LLM LLMConfig
+        +Docker DockerConfig
+        +Notification NotificationConfig
+        +Output OutputConfig
+        +Privacy PrivacyConfig
+        +Prompts PromptsConfig
+    }
+    
+    class LLMConfig <<struct>> {
+        +BaseURL string
+        +APIKey string
+        +Model string
+        +MaxTokens int
+    }
+    
+    class DockerConfig <<struct>> {
+        +SocketPath string
+    }
+    
+    class NotificationConfig <<struct>> {
+        +ShoutrrrURL string
+        +Enabled bool
+    }
+    
+    class OutputConfig <<struct>> {
+        +ReportsDir string
+        +KnowledgeBaseDir string
+        +StateFile string
+        +IgnoreDir string
+    }
+    
+    class PrivacyConfig <<struct>> {
+        +AnonymizeIPs bool
+        +AnonymizeSecrets bool
+    }
+    
+    class PromptsConfig <<struct>> {
+        +SystemPrompt string
+        +AnalysisPrompt string
+        +ChunkSummaryPrompt string
+        +SynthesisPrompt string
+        +ExecutiveSummaryPrompt string
+    }
+    
+    Config *-- LLMConfig
+    Config *-- DockerConfig
+    Config *-- NotificationConfig
+    Config *-- OutputConfig
+    Config *-- PrivacyConfig
+    Config *-- PromptsConfig
+}
+
+package "internal/prompts" {
+    class PromptLoader {
+        -cfg *config.Config
+        -cache map[string]string
+        -sources map[string]string
+        -mu sync.RWMutex
+        +GetPrompt(name, fallback string) string
+        +GetAllPromptSources() map[string]string
+        -loadPromptFile(path string) (string, error)
+    }
+    
+    PromptLoader ..> "internal/config".Config
+}
+
+package "internal/notification" {
+    class Notifier {
+        -cfg *config.Config
+        -sender shoutrrrTypes.Sender
+        +IsEnabled() bool
+        +SendScanSummary(summary string, containerCount int, issuesFound bool) error
+        +Send(title, message string) error
+    }
+    
+    Notifier ..> "internal/config".Config
+}
+
+' Cross-package relationships are shown within packages using qualified names
+' Pipeline uses LogEntry from docker package (see Pipeline class definition)
+' LogChunk contains LogEntry from docker package (see LogChunk class definition)
+
+@enduml

@@ -1,0 +1,171 @@
+@startuml DLIA Deployment Diagram
+!theme plain
+title DLIA - Deployment Diagram
+
+skinparam backgroundColor #FFFFFF
+skinparam node {
+    BackgroundColor #E8F4FD
+    BorderColor #2980B9
+}
+skinparam artifact {
+    BackgroundColor #FFF3CD
+    BorderColor #856404
+}
+skinparam database {
+    BackgroundColor #F8F9FA
+    BorderColor #6C757D
+}
+skinparam cloud {
+    BackgroundColor #E6FFE6
+    BorderColor #27AE60
+}
+
+' Host System
+node "Host System\n(Linux/Windows/macOS)" as host {
+    
+    artifact "dlia\n(Single Static Binary)" as dlia_bin {
+        component "CLI (Cobra)" as cli
+        component "Config Loader (Viper)" as viper
+        component "Docker SDK" as docker_sdk
+        component "LLM Client" as llm_sdk
+        component "Shoutrrr" as shoutrrr
+        component "Tiktoken" as tiktoken
+    }
+    
+    folder "Working Directory" as workdir {
+        file "config.yaml" as config
+        file ".env" as env
+        file "state.json" as state
+        
+        folder "reports/" as reports {
+            folder "container-a/" as reports_a
+            folder "container-b/" as reports_b
+        }
+        
+        folder "knowledge_base/" as kb {
+            file "global_summary.md" as global_md
+            folder "services/" as services {
+                file "container-a_summary.md" as kb_a
+                file "container-b_summary.md" as kb_b
+            }
+        }
+        
+        folder "config/" as config_dir {
+            folder "ignore/" as ignore_dir {
+                file "container-a.md" as ignore_a
+            }
+            folder "prompts/" as prompts_dir {
+                file "custom_system.md" as custom_prompt
+            }
+        }
+    }
+    
+    node "Docker Engine" as docker_engine {
+        [Docker Daemon] as dockerd
+        
+        node "container-a" as c_a {
+            [Application A] as app_a
+        }
+        
+        node "container-b" as c_b {
+            [Application B] as app_b
+        }
+    }
+}
+
+' External Services
+cloud "LLM Provider" as llm_provider {
+    node "OpenAI API" as openai {
+        [GPT-4] as gpt4
+        [GPT-4o-mini] as gpt4mini
+    }
+    
+    node "OpenRouter" as openrouter {
+        [Claude] as claude
+        [Mistral] as mistral
+    }
+    
+    node "Local Ollama" as ollama {
+        [Llama 3] as llama
+        [Mixtral] as mixtral
+    }
+}
+
+cloud "Notification Services" as notify_services {
+    [SMTP Server] as smtp
+    [Discord Webhook] as discord
+    [Slack Webhook] as slack
+    [ntfy.sh] as ntfy
+}
+
+' Connections
+dlia_bin --> dockerd : Unix Socket\n/var/run/docker.sock
+dockerd --> c_a : Container API
+dockerd --> c_b : Container API
+
+dlia_bin --> config : Read
+dlia_bin --> env : Read
+dlia_bin --> state : Read/Write
+dlia_bin --> reports : Write
+dlia_bin --> kb : Read/Write
+dlia_bin --> ignore_dir : Read
+dlia_bin --> prompts_dir : Read
+
+dlia_bin --> openai : HTTPS
+dlia_bin --> openrouter : HTTPS
+dlia_bin --> ollama : HTTP (localhost)
+
+dlia_bin --> smtp : SMTP/TLS
+dlia_bin --> discord : HTTPS
+dlia_bin --> slack : HTTPS
+dlia_bin --> ntfy : HTTPS
+
+' Scheduling
+note bottom of host
+  **Scheduling Options**
+  
+  1. **Cron Job** (Recommended)
+     ```
+     */15 * * * * /usr/local/bin/dlia scan
+     ```
+  
+  2. **systemd Timer**
+     ```
+     [Timer]
+     OnBootSec=5min
+     OnUnitActiveSec=15min
+     ```
+  
+  3. **Windows Task Scheduler**
+     Trigger: Every 15 minutes
+     Action: dlia.exe scan
+end note
+
+note right of docker_engine
+  **Docker Socket Paths**
+  
+  Linux: /var/run/docker.sock
+  macOS: /var/run/docker.sock
+  Windows: npipe:////./pipe/docker_engine
+  
+  Auto-detected if not configured
+end note
+
+note right of llm_provider
+  **LLM Configuration**
+  
+  config.yaml:
+  ```yaml
+  llm:
+    base_url: "https://api.openai.com/v1"
+    model: "gpt-4o-mini"
+    max_tokens: 128000
+  ```
+  
+  .env:
+  ```
+  DLIA_LLM_API_KEY=sk-...
+  ```
+end note
+
+@enduml

@@ -1,0 +1,184 @@
+@startuml DLIA Scan Sequence Diagram
+!theme plain
+title DLIA - Scan Command Sequence Diagram
+
+skinparam backgroundColor #FFFFFF
+skinparam sequence {
+    ArrowColor #2980B9
+    LifeLineBorderColor #6C757D
+    LifeLineBackgroundColor #F8F9FA
+    ParticipantBorderColor #2980B9
+    ParticipantBackgroundColor #E8F4FD
+}
+
+actor User as user
+participant "main.go" as main
+participant "cmd/scan.go" as scan
+participant "internal/config" as config
+participant "internal/prompts" as prompts
+participant "internal/docker" as docker
+participant "internal/state" as state
+participant "internal/chunking\nPipeline" as pipeline
+participant "internal/llm\nClient" as llm
+participant "internal/reporting" as reporting
+participant "internal/knowledge" as knowledge
+participant "internal/notification" as notification
+
+box "External Systems" #FFF5E6
+    participant "Docker\nDaemon" as docker_api
+    participant "LLM\nAPI" as llm_api
+    participant "Notification\nServices" as notify_api
+end box
+
+== Initialization ==
+
+user -> main : dlia scan [flags]
+activate main
+main -> scan : Execute()
+activate scan
+
+scan -> config : Load(configFile)
+activate config
+config --> scan : Config
+deactivate config
+
+scan -> prompts : InitPrompts(cfg)
+activate prompts
+prompts --> scan : Prompts loaded
+deactivate prompts
+
+scan -> docker : NewClient(socketPath)
+activate docker
+docker -> docker_api : Connect
+docker_api --> docker : Connection OK
+docker --> scan : DockerClient
+deactivate docker
+
+scan -> docker : Ping(ctx)
+docker -> docker_api : Ping
+docker_api --> docker : Pong
+docker --> scan : OK
+
+scan -> state : Load(stateFile)
+activate state
+state --> scan : State (last scan times)
+deactivate state
+
+== Container Discovery ==
+
+scan -> docker : ListContainers(ctx, filterOpts)
+activate docker
+docker -> docker_api : ContainerList
+docker_api --> docker : []Container
+docker --> scan : []Container
+deactivate docker
+
+== Per-Container Processing Loop ==
+
+loop for each Container
+    scan -> scan : determineLogStartTime()
+    
+    scan -> docker : ReadLogsSince(ctx, containerID, since)
+    activate docker
+    docker -> docker_api : ContainerLogs
+    docker_api --> docker : LogStream
+    docker --> scan : []LogEntry
+    deactivate docker
+    
+    alt logs found
+        scan -> pipeline : AnalyzeLogs(ctx, containerName, logs)
+        activate pipeline
+        
+        pipeline -> pipeline : Deduplicate(logs)
+        pipeline -> pipeline : FormatLogs(dedupLogs)
+        pipeline -> config : GetIgnoreInstructions(containerName)
+        config --> pipeline : ignoreInstructions
+        
+        pipeline -> pipeline : CountTokens()
+        
+        alt tokens <= maxTokens
+            pipeline -> llm : Analyze(ctx, systemPrompt, userPrompt)
+            activate llm
+            llm -> llm_api : POST /chat/completions
+            llm_api --> llm : ChatResponse
+            llm --> pipeline : (analysis, tokenUsage)
+            deactivate llm
+        else tokens > maxTokens (chunking needed)
+            pipeline -> pipeline : ChunkLogs()
+            
+            loop for each chunk
+                pipeline -> llm : SummarizeChunk(ctx, systemPrompt, chunkPrompt)
+                activate llm
+                llm -> llm_api : POST /chat/completions
+                llm_api --> llm : summary
+                llm --> pipeline : chunkSummary
+                deactivate llm
+            end
+            
+            pipeline -> llm : Analyze(ctx, systemPrompt, synthesisPrompt)
+            activate llm
+            llm -> llm_api : POST /chat/completions
+            llm_api --> llm : finalAnalysis
+            llm --> pipeline : (analysis, tokenUsage)
+            deactivate llm
+        end
+        
+        pipeline --> scan : AnalyzeResult
+        deactivate pipeline
+        
+        scan -> reporting : GenerateScanReport(name, result, logs)
+        activate reporting
+        reporting --> scan : reportContent
+        deactivate reporting
+        
+        scan -> reporting : SaveReport(name, content, cfg)
+        activate reporting
+        reporting --> scan : reportPath
+        deactivate reporting
+        
+        scan -> knowledge : UpdateServiceKB(name, result, cfg)
+        activate knowledge
+        knowledge --> scan : OK
+        deactivate knowledge
+        
+        scan -> state : UpdateContainer(id, name, latestTime, "")
+    end
+end
+
+== Post-Processing ==
+
+scan -> state : Save()
+activate state
+state --> scan : OK
+deactivate state
+
+scan -> knowledge : UpdateGlobalSummary(globalResults, cfg)
+activate knowledge
+knowledge --> scan : OK
+deactivate knowledge
+
+scan -> llm : Analyze(ctx, systemPrompt, execSummaryPrompt)
+activate llm
+llm -> llm_api : POST /chat/completions
+llm_api --> llm : executiveSummary
+llm --> scan : summary
+deactivate llm
+
+scan -> notification : NewNotifier(cfg)
+activate notification
+
+alt notification enabled
+    notification -> notify_api : Send(message)
+    notify_api --> notification : OK
+    notification --> scan : Sent
+else notification disabled
+    notification --> scan : Skipped
+end
+deactivate notification
+
+scan --> main : nil (success)
+deactivate scan
+main --> user : Exit 0
+deactivate main
+
+@enduml

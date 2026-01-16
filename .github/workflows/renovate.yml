@@ -1,0 +1,29 @@
+# GitHub Actions Renovate Pipeline for DLIA
+# Runs Renovate for automated dependency updates
+
+name: Renovate
+
+on:
+  # Run daily at 2:00 AM UTC
+  schedule:
+    - cron: "0 2 * * *"
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  renovate:
+    name: Renovate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Renovate config
+        uses: suzuki-shunsuke/github-action-renovate-config-validator@v1
+        with:
+          config_file_path: renovate.json
+
+      - name: Run Renovate
+        uses: renovatebot/github-action@v42
+        with:
+          configurationFile: renovate.json
+          token: ${{ secrets.RENOVATE_TOKEN }}

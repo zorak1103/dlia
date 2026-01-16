@@ -1,0 +1,107 @@
+@startuml DLIA Pipeline Activity Diagram
+!theme plain
+title DLIA - Log Processing Pipeline\nActivity Diagram
+
+skinparam backgroundColor #FFFFFF
+skinparam activity {
+    BackgroundColor #E8F4FD
+    BorderColor #2980B9
+    DiamondBackgroundColor #FFF3CD
+    DiamondBorderColor #856404
+}
+skinparam swimlane {
+    BorderColor #6C757D
+}
+
+|#F8F9FA|Scan Command|
+start
+:Receive scan command;
+:Load configuration;
+:Initialize prompts;
+:Connect to Docker daemon;
+
+if (Docker connection OK?) then (yes)
+    :Load state file;
+    :List containers;
+    
+    if (Containers found?) then (yes)
+        :Apply name filter (if specified);
+        
+        |#FFF5E6|Container Loop|
+        while (More containers?) is (yes)
+            :Determine log start time;
+            note right
+              - Use state cursor if available
+              - Use lookback duration if specified
+              - Default: last 1 hour
+            end note
+            
+            :Read logs from Docker;
+            
+            if (Logs found?) then (yes)
+                |#E6FFE6|Chunking Pipeline|
+                :Deduplicate log entries;
+                note right
+                  Group repeated identical
+                  messages with count
+                end note
+                
+                :Format logs to text;
+                :Load ignore instructions;
+                :Build system prompt;
+                :Count tokens;
+                
+                if (Tokens <= max context?) then (yes)
+                    :Single LLM analysis call;
+                else (no)
+                    :Split into chunks;
+                    
+                    |#FFE6E6|Chunk Processing|
+                    while (More chunks?) is (yes)
+                        :Summarize chunk via LLM;
+                        :Collect chunk summary;
+                    endwhile (no)
+                    |#E6FFE6|Chunking Pipeline|
+                    
+                    :Synthesize all summaries;
+                    :Final LLM analysis call;
+                endif
+                
+                :Return AnalyzeResult;
+                
+                |#F8F9FA|Scan Command|
+                :Generate Markdown report;
+                :Save report to reports/;
+                :Update service knowledge base;
+                :Collect for global summary;
+                :Update state with latest timestamp;
+            else (no)
+                :Log "No new logs";
+            endif
+            
+            |#FFF5E6|Container Loop|
+        endwhile (no)
+        
+        |#F8F9FA|Scan Command|
+        :Save state file;
+        :Update global summary;
+        :Generate executive summary via LLM;
+        
+        if (Notifications enabled?) then (yes)
+            :Send notification;
+        else (no)
+            :Skip notification;
+        endif
+        
+        :Display scan summary;
+    else (no)
+        :Display "No containers found";
+    endif
+else (no)
+    :Error: Docker not available;
+    stop
+endif
+
+stop
+
+@enduml

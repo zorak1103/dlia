@@ -1,0 +1,97 @@
+@startuml DLIA Container State Diagram
+!theme plain
+title DLIA - Container Scan State Diagram
+
+skinparam backgroundColor #FFFFFF
+skinparam state {
+    BackgroundColor #E8F4FD
+    BorderColor #2980B9
+    StartColor #27AE60
+    EndColor #C0392B
+}
+
+[*] --> Unknown : First Discovery
+
+state "Unknown" as Unknown #FFF3CD {
+    Unknown : No previous scan record
+    Unknown : Will scan last 1 hour
+}
+
+state "Tracked" as Tracked #E8F4FD {
+    Tracked : Has last_scan timestamp
+    Tracked : Has container name
+    Tracked : Optional log_cursor
+    
+    state "Idle" as Idle {
+        Idle : Waiting for next scan
+    }
+    
+    state "Scanning" as Scanning {
+        Scanning : Reading logs since last_scan
+        Scanning : Processing via LLM
+    }
+    
+    state "Updated" as Updated {
+        Updated : State updated with new timestamp
+        Updated : Report generated
+        Updated : KB updated
+    }
+    
+    Idle --> Scanning : scan command
+    Scanning --> Updated : logs processed
+    Updated --> Idle : state saved
+    Scanning --> Idle : no new logs
+}
+
+Unknown --> Tracked : UpdateContainer()
+
+state "Lookback Mode" as Lookback #E6FFE6 {
+    Lookback : Ignores state file
+    Lookback : Uses --lookback duration
+    Lookback : Does not update state
+}
+
+Tracked --> Lookback : --lookback flag
+Lookback --> Tracked : normal scan
+
+state "Dry Run Mode" as DryRun #FFE6E6 {
+    DryRun : Reads logs normally
+    DryRun : Skips LLM analysis
+    DryRun : Does not update state
+}
+
+Tracked --> DryRun : --dry-run flag
+DryRun --> Tracked : normal scan
+
+state "Removed" as Removed #F8F9FA {
+    Removed : Container deleted from state
+    Removed : Via reset command
+}
+
+Tracked --> Removed : state reset
+Removed --> Unknown : container rediscovered
+
+state "Filtered Out" as Filtered #F8F9FA {
+    Filtered : Does not match --filter pattern
+    Filtered : Skipped during scan
+}
+
+Tracked --> Filtered : filter applied
+Filtered --> Tracked : filter removed
+
+note right of Tracked
+  State persisted in state.json:
+  {
+    "version": "1",
+    "last_updated": "...",
+    "containers": {
+      "<id>": {
+        "name": "...",
+        "last_scan": "...",
+        "log_cursor": "..."
+      }
+    }
+  }
+end note
+
+@enduml

@@ -1,0 +1,164 @@
+# GitHub Actions CI/CD Pipeline for DLIA
+# Docker Log Intelligence & Analysis
+# Go Version: 1.25.5
+# Repository: github.com/zorak1103/dlia
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  GO_VERSION: "1.25.5"
+  CGO_ENABLED: "0"
+
+jobs:
+  # ============================================================================
+  # LINT - Code Quality and Formatting
+  # ============================================================================
+
+  golangci-lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: latest
+          args: --timeout=5m
+
+  go-fmt:
+    name: go fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Check formatting
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "The following files are not formatted:"
+            gofmt -l .
+            exit 1
+          fi
+
+  # ============================================================================
+  # TEST - Unit Tests and Coverage
+  # ============================================================================
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests with coverage
+        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Generate coverage report
+        run: go tool cover -func=coverage.out | tee coverage-report.txt
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.out
+            coverage-report.txt
+          retention-days: 30
+
+  build-check:
+    name: Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Check build
+        run: go build -n .
+
+  # ============================================================================
+  # SECURITY - Security Scans
+  # ============================================================================
+
+  gosec:
+    name: gosec Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run gosec
+        run: gosec ./cmd/... ./internal/...
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+  # ============================================================================
+  # SECRET DETECTION
+  # ============================================================================
+
+  secret-detection:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified

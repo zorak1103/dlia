@@ -1,0 +1,144 @@
+@startuml DLIA Data Flow Diagram
+!theme plain
+title DLIA - Data Flow Diagram
+
+skinparam backgroundColor #FFFFFF
+skinparam component {
+    BackgroundColor #E8F4FD
+    BorderColor #2980B9
+}
+skinparam database {
+    BackgroundColor #FFF3CD
+    BorderColor #856404
+}
+skinparam cloud {
+    BackgroundColor #F8F9FA
+    BorderColor #6C757D
+}
+skinparam arrow {
+    Color #2980B9
+}
+
+' External Data Sources
+cloud "Docker Containers" as containers {
+    [Container 1\nstdout/stderr] as c1
+    [Container 2\nstdout/stderr] as c2
+    [Container N\nstdout/stderr] as cn
+}
+
+cloud "LLM API" as llm_cloud {
+    [OpenAI] as openai
+    [OpenRouter] as openrouter
+    [Ollama] as ollama
+}
+
+cloud "Notification Targets" as notify_cloud {
+    [SMTP Server] as smtp
+    [Discord] as discord
+    [Slack] as slack
+}
+
+' Configuration Data
+database "Configuration" as config_data {
+    [config.yaml] as config_yaml
+    [.env] as env_file
+    [config/ignore/*.md] as ignore_files
+    [config/prompts/*.md] as prompt_files
+}
+
+' Internal Processing
+package "DLIA Processing" {
+    component "Docker Client" as docker_client
+    component "Log Deduplicator" as dedup
+    component "Tokenizer" as tokenizer
+    component "Chunker" as chunker
+    component "LLM Client" as llm_client
+    component "Prompt Builder" as prompt_builder
+    component "Report Generator" as report_gen
+    component "Knowledge Manager" as kb_manager
+    component "Notifier" as notifier
+}
+
+' Persistent Storage
+database "Persistent Storage" as storage {
+    [state.json\n(scan cursors)] as state_json
+    [reports/\n(per-container)] as reports_dir
+    [knowledge_base/\nglobal_summary.md] as global_kb
+    [knowledge_base/services/\n*_summary.md] as service_kb
+}
+
+' Data Flows
+
+' Input flows
+c1 --> docker_client : Log stream
+c2 --> docker_client : Log stream
+cn --> docker_client : Log stream
+
+config_yaml --> prompt_builder : LLM settings
+env_file --> prompt_builder : API keys
+ignore_files --> prompt_builder : Ignore rules
+prompt_files --> prompt_builder : Custom prompts
+
+state_json --> docker_client : Last scan timestamps
+
+' Processing flows
+docker_client --> dedup : Raw []LogEntry
+dedup --> tokenizer : Deduplicated logs
+tokenizer --> chunker : Token counts
+chunker --> prompt_builder : Log chunks
+
+prompt_builder --> llm_client : Formatted prompts
+llm_client --> openai : API Request
+llm_client --> openrouter : API Request
+llm_client --> ollama : API Request
+
+openai --> llm_client : Analysis response
+openrouter --> llm_client : Analysis response
+ollama --> llm_client : Analysis response
+
+llm_client --> report_gen : AnalyzeResult
+llm_client --> kb_manager : AnalyzeResult
+
+' Output flows
+docker_client --> state_json : Update timestamps
+report_gen --> reports_dir : Markdown reports
+kb_manager --> service_kb : Service summaries
+kb_manager --> global_kb : Global summary
+
+llm_client --> notifier : Executive summary
+notifier --> smtp : Email
+notifier --> discord : Webhook
+notifier --> slack : Webhook
+
+' Historical context feedback loop
+service_kb --> prompt_builder : Previous analysis\n(historical context)
+global_kb --> prompt_builder : Trend data
+
+note right of dedup
+  **Deduplication Example**
+  Before: 500 identical "Connection OK" entries
+  After: 1 entry "[REPEAT x500] Connection OK"
+end note
+
+note right of chunker
+  **Chunking Strategy**
+  - Check if logs fit in context window
+  - If not, split into chunks
+  - Each chunk summarized separately
+  - Summaries synthesized into final analysis
+end note
+
+note bottom of storage
+  **File Structure**
+  ./
+  ├── state.json
+  ├── reports/
+  │   └── {container}/
+  │       └── {timestamp}.md
+  └── knowledge_base/
+      ├── global_summary.md
+      └── services/
+          └── {container}_summary.md
+end note
+
+@enduml

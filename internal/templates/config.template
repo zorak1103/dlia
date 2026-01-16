@@ -1,0 +1,127 @@
+# DLIA Configuration File
+# Docker Log Intelligence Agent
+
+# LLM Configuration
+llm:
+  # Base URL for the LLM API (OpenAI-compatible endpoint)
+  # Examples:
+  #   - OpenAI: https://api.openai.com/v1
+  #   - OpenRouter: https://openrouter.ai/api/v1
+  #   - Ollama (local): http://localhost:11434/v1
+  base_url: "https://api.openai.com/v1"
+  
+  # API Key for authentication
+  # Set via environment variable: DLIA_LLM_API_KEY
+  api_key: ""
+  
+  # Model to use for analysis
+  # Examples:
+  #   - OpenAI: gpt-4o-mini, gpt-4o, gpt-3.5-turbo
+  #   - OpenRouter: anthropic/claude-3.5-sonnet, google/gemini-pro-1.5
+  #   - Ollama: llama3.2, mistral, codellama
+  model: "gpt-4o-mini"
+  
+  # Maximum token limit for the model
+  max_tokens: 128000
+
+# Docker Configuration
+docker:
+  # Docker socket path (leave empty for automatic detection)
+  # Will auto-detect:
+  #   - Linux/macOS: unix:///var/run/docker.sock
+  #   - Windows: npipe:////./pipe/docker_engine
+  #   - Or use DOCKER_HOST environment variable
+  # 
+  # Manual override examples:
+  #   - Unix: unix:///var/run/docker.sock
+  #   - Windows: npipe:////./pipe/docker_engine
+  #   - Remote: tcp://192.168.1.100:2375
+  socket_path: ""
+
+# Notification Configuration
+notification:
+  # Shoutrrr URL for notifications
+  # Documentation: https://containrrr.dev/shoutrrr/v0.8/services/overview/
+  # Examples:
+  #   - Email (SMTP): smtp://username:password@smtp.gmail.com:587/?from=sender@example.com&to=recipient@example.com
+  #   - Discord: discord://token@webhookid
+  #   - Slack: slack://token@channel
+  #   - Telegram: telegram://token@telegram?channels=channel-1
+  # Set via environment variable: DLIA_NOTIFICATION_SHOUTRRR_URL
+  shoutrrr_url: ""
+  
+  # Enable/disable notifications
+  enabled: false
+
+# Output Configuration
+output:
+  # Directory for per-scan reports
+  reports_dir: "./reports"
+  
+  # Directory for accumulated knowledge base
+  knowledge_base_dir: "./knowledge_base"
+  
+  # State file to track scan progress
+  state_file: "./state.json"
+
+  # Directory for per-container ignore rules (natural language filtering)
+  # Create files like: config/ignore/{container-name}.md
+  ignore_dir: "./config/ignore"
+
+  # Directory for LLM request/response logs (enabled with --llmlog flag)
+  # Useful for debugging, cost auditing, and prompt engineering
+  llm_log_dir: "./logs/llm"
+  
+  # Knowledge base retention period (in days)
+  # Automatically removes entries older than this value
+  # Valid range: 1-365 days (default: 30 days)
+  knowledge_retention_days: 30
+
+# Privacy/Anonymization
+privacy:
+  # Anonymize IP addresses in logs before sending to LLM
+  anonymize_ips: true
+  
+  # Anonymize potential secrets (passwords, tokens, keys)
+  anonymize_secrets: true
+
+# Prompt Templates Configuration (Phase 8)
+prompts:
+  # Paths to custom prompt templates (optional)
+  # Leave empty to use built-in defaults
+  # Use absolute or relative paths to Markdown files
+  
+  # Main system prompt for log analysis
+  system_prompt: ""
+  
+  # Prompt for analyzing log entries
+  analysis_prompt: ""
+  
+  # Prompt for summarizing log chunks
+  chunk_summary_prompt: ""
+  
+  # Prompt for combining chunk summaries
+  synthesis_prompt: ""
+  
+  # Prompt for generating executive summaries
+  executive_summary_prompt: ""
+
+# Regexp Filters Configuration (Cost Optimization)
+# Filters logs before LLM processing to reduce costs
+# Patterns use Go regexp syntax: https://pkg.go.dev/regexp/syntax
+regexp_filters:
+  # Example: Filter debug logs and health checks from a specific container
+  # my-container:
+  #   enabled: true
+  #   patterns:
+  #     - "^DEBUG:"           # Lines starting with DEBUG:
+  #     - "healthcheck"       # Any line containing "healthcheck"
+  #     - "\\[TRACE\\]"       # Lines containing [TRACE] (escape brackets)
+  #     - "(?i)verbose"       # Case-insensitive match for "verbose"
+  
+  # Add your container-specific filters here:
+  # container-name:
+  #   enabled: true
+  #   patterns:
+  #     - "pattern1"
+  #     - "pattern2"

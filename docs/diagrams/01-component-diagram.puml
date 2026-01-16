@@ -1,0 +1,129 @@
+@startuml DLIA Component Diagram
+!theme plain
+title DLIA - Docker Log Intelligence Agent\nComponent Diagram
+
+skinparam componentStyle uml2
+skinparam backgroundColor #FFFFFF
+skinparam component {
+    BackgroundColor #E8F4FD
+    BorderColor #2980B9
+}
+skinparam package {
+    BackgroundColor #F8F9FA
+    BorderColor #6C757D
+}
+skinparam interface {
+    BackgroundColor #FFF3CD
+    BorderColor #856404
+}
+
+' External Systems
+cloud "Docker Daemon" as docker_daemon #FFE6E6
+cloud "LLM API\n(OpenAI/OpenRouter/Ollama)" as llm_api #E6FFE6
+cloud "Notification Services\n(SMTP/Discord/Slack)" as notify_services #FFF0E6
+
+' Main Application
+package "DLIA Application" {
+    
+    package "cmd" as cmd_pkg {
+        component [root.go\n---\nCLI Entry Point\nCobra Commands] as root_cmd
+        component [scan.go\n---\nOne-time Scan\nOrchestration] as scan_cmd
+        component [init.go\n---\nConfiguration\nInitialization] as init_cmd
+        component [state.go\n---\nState Management\nCommands] as state_cmd
+    }
+    
+    package "internal/docker" as docker_pkg {
+        interface "ClientInterface" as docker_iface
+        component [client.go\n---\nDocker SDK Wrapper] as docker_client
+        component [logs.go\n---\nLog Stream Parser] as docker_logs
+        component [types.go\n---\nContainer, LogEntry] as docker_types
+        docker_client -up-|> docker_iface
+    }
+    
+    package "internal/chunking" as chunking_pkg {
+        component [pipeline.go\n---\nProcessing Pipeline\nOrchestrator] as pipeline
+        component [chunker.go\n---\nLog Splitting\nToken-based] as chunker
+        component [deduplicator.go\n---\nDuplicate Removal\nGrouping] as dedup
+        interface "TokenizerInterface" as tok_iface
+        component [tokenizer.go\n---\nToken Counting\ntiktoken] as tokenizer
+        tokenizer -up-|> tok_iface
+    }
+    
+    package "internal/llm" as llm_pkg {
+        interface "ClientInterface" as llm_iface
+        component [client.go\n---\nHTTP Client\nOpenAI Protocol] as llm_client
+        component [types.go\n---\nChatMessage\nTokenUsage] as llm_types
+        llm_client -up-|> llm_iface
+    }
+    
+    package "internal/prompts" as prompts_pkg {
+        component [prompts.go\n---\nPrompt Loader\nTemplate Manager] as prompts
+        folder "defaults/\n---\nEmbedded Templates" as defaults
+    }
+    
+    package "internal/config" as config_pkg {
+        component [config.go\n---\nViper Loader\nEnv Mapping] as config
+        component [ignore.go\n---\nIgnore Rules\nLoader] as ignore
+    }
+    
+    package "internal/state" as state_pkg {
+        component [state.go\n---\nJSON Persistence\nLog Cursors] as state
+    }
+    
+    package "internal/knowledge" as kb_pkg {
+        component [service.go\n---\nService-level KB\nHistory] as kb_service
+        component [global.go\n---\nGlobal Summary\nTrends] as kb_global
+    }
+    
+    package "internal/reporting" as report_pkg {
+        component [report.go\n---\nMarkdown Generator\nReport Storage] as report
+    }
+    
+    package "internal/notification" as notify_pkg {
+        component [notification.go\n---\nShoutrrr Wrapper\nMulti-channel] as notifier
+    }
+    
+    package "internal/templates" as templates_pkg {
+        component [templates.go\n---\nEmbedded Files\nInit Templates] as templates
+    }
+}
+
+' Filesystem
+database "File System" as fs {
+    folder "config.yaml" as cfg_file
+    folder ".env" as env_file
+    folder "state.json" as state_file
+    folder "reports/" as reports_dir
+    folder "knowledge_base/" as kb_dir
+    folder "config/ignore/" as ignore_dir
+}
+
+' Relationships
+scan_cmd --> docker_pkg : "Read Logs"
+scan_cmd --> chunking_pkg : "Process"
+scan_cmd --> state_pkg : "Track Progress"
+scan_cmd --> report_pkg : "Generate Reports"
+scan_cmd --> kb_pkg : "Update Knowledge"
+scan_cmd --> notify_pkg : "Send Alerts"
+
+init_cmd --> templates_pkg : "Generate Files"
+state_cmd --> state_pkg : "Manage"
+
+pipeline --> llm_pkg : "Analyze"
+pipeline --> prompts_pkg : "Get Prompts"
+prompts --> defaults : "Load Defaults"
+
+docker_pkg --> docker_daemon : "Docker Socket"
+llm_pkg --> llm_api : "HTTPS API"
+notify_pkg --> notify_services : "Various Protocols"
+
+config_pkg --> cfg_file : "Read"
+config_pkg --> env_file : "Read"
+state_pkg --> state_file : "Read/Write"
+report_pkg --> reports_dir : "Write"
+kb_pkg --> kb_dir : "Read/Write"
+ignore --> ignore_dir : "Read"
+templates_pkg --> cfg_file : "Write"
+templates_pkg --> env_file : "Write"
+
+@enduml
