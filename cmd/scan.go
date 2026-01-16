@@ -128,37 +128,50 @@ func parseLookbackDuration(scanCfg *scanConfig) (time.Duration, error) {
 
 func displayScanHeader(cfg *config.Config, scanCfg *scanConfig, lookbackDuration time.Duration) {
 	if scanCfg.verbose {
-		fmt.Println("=== DLIA Container Log Scan ===")
-		fmt.Printf("Dry Run: %v\n", scanCfg.dryRun)
-		if scanCfg.filter != "" {
-			fmt.Printf("Container Filter: %s\n", scanCfg.filter)
-		}
-		if lookbackDuration > 0 {
-			fmt.Printf("Lookback Duration: %s\n", lookbackDuration)
-		}
-		fmt.Printf("LLM Model: %s\n", cfg.LLM.Model)
-		fmt.Printf("Docker Socket: %s\n", cfg.Docker.SocketPath)
-		fmt.Printf("State File: %s\n", cfg.Output.StateFile)
-
-		fmt.Println("\n📝 Prompt Configuration:")
-		loader := prompts.GetDefaultLoader()
-		if loader != nil {
-			sources := loader.GetAllPromptSources()
-			if len(sources) > 0 {
-				for name, source := range sources {
-					fmt.Printf("   %s: %s\n", name, source)
-				}
-			} else {
-				fmt.Println("   Using built-in defaults (will be loaded on first use)")
-			}
-		}
-		fmt.Println()
+		displayVerboseHeader(cfg, scanCfg, lookbackDuration)
 	}
 
 	fmt.Println("🔍 Starting container log scan...")
 
 	if scanCfg.dryRun {
 		fmt.Println("⚠️  DRY RUN MODE - No LLM calls will be made, state will not be updated")
+	}
+	fmt.Println()
+}
+
+func displayVerboseHeader(cfg *config.Config, scanCfg *scanConfig, lookbackDuration time.Duration) {
+	fmt.Println("=== DLIA Container Log Scan ===")
+	fmt.Printf("Dry Run: %v\n", scanCfg.dryRun)
+	if scanCfg.filter != "" {
+		fmt.Printf("Container Filter: %s\n", scanCfg.filter)
+	}
+	if lookbackDuration > 0 {
+		fmt.Printf("Lookback Duration: %s\n", lookbackDuration)
+	}
+	fmt.Printf("LLM Model: %s\n", cfg.LLM.Model)
+	fmt.Printf("Docker Socket: %s\n", cfg.Docker.SocketPath)
+	fmt.Printf("State File: %s\n", cfg.Output.StateFile)
+
+	displayPromptConfiguration()
+}
+
+func displayPromptConfiguration() {
+	fmt.Println("\n📝 Prompt Configuration:")
+	loader := prompts.GetDefaultLoader()
+	if loader == nil {
+		fmt.Println()
+		return
+	}
+
+	sources := loader.GetAllPromptSources()
+	if len(sources) == 0 {
+		fmt.Println("   Using built-in defaults (will be loaded on first use)")
+		fmt.Println()
+		return
+	}
+
+	for name, source := range sources {
+		fmt.Printf("   %s: %s\n", name, source)
 	}
 	fmt.Println()
 }

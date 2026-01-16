@@ -252,44 +252,51 @@ func (c *Config) Validate() error {
 		configSource = "(defaults/environment)"
 	}
 
-	if c.LLM.BaseURL == "" {
-		return fmt.Errorf("llm.base_url is required in config %s", configSource)
+	if err := c.validateRequiredFields(configSource); err != nil {
+		return err
 	}
 
-	if c.LLM.APIKey == "" {
-		return fmt.Errorf("llm.api_key is required in config %s (set DLIA_LLM_API_KEY environment variable)", configSource)
+	if err := c.validateRanges(configSource); err != nil {
+		return err
 	}
 
-	if c.LLM.Model == "" {
-		return fmt.Errorf("llm.model is required in config %s", configSource)
+	return c.validateRegexpFilters()
+}
+
+func (c *Config) validateRequiredFields(configSource string) error {
+	requiredFields := []struct {
+		value   string
+		message string
+	}{
+		{c.LLM.BaseURL, "llm.base_url is required in config %s"},
+		{c.LLM.APIKey, "llm.api_key is required in config %s (set DLIA_LLM_API_KEY environment variable)"},
+		{c.LLM.Model, "llm.model is required in config %s"},
+		{c.Docker.SocketPath, "docker.socket_path is required in config %s"},
+		{c.Output.ReportsDir, "output.reports_dir is required in config %s"},
+		{c.Output.KnowledgeBaseDir, "output.knowledge_base_dir is required in config %s"},
+		{c.Output.StateFile, "output.state_file is required in config %s"},
 	}
 
-	if c.Docker.SocketPath == "" {
-		return fmt.Errorf("docker.socket_path is required in config %s", configSource)
+	for _, field := range requiredFields {
+		if field.value == "" {
+			return fmt.Errorf(field.message, configSource)
+		}
 	}
+	return nil
+}
 
-	if c.Output.ReportsDir == "" {
-		return fmt.Errorf("output.reports_dir is required in config %s", configSource)
-	}
-
-	if c.Output.KnowledgeBaseDir == "" {
-		return fmt.Errorf("output.knowledge_base_dir is required in config %s", configSource)
-	}
-
-	if c.Output.StateFile == "" {
-		return fmt.Errorf("output.state_file is required in config %s", configSource)
-	}
-
-	// Validate knowledge retention days (minimum 1 day, maximum 365 days)
+func (c *Config) validateRanges(configSource string) error {
 	if c.Output.KnowledgeRetentionDays < 1 || c.Output.KnowledgeRetentionDays > 365 {
 		return fmt.Errorf("output.knowledge_retention_days must be between 1 and 365, got %d in config %s",
 			c.Output.KnowledgeRetentionDays, configSource)
 	}
+	return nil
+}
 
-	// Validate regexp filter patterns
+func (c *Config) validateRegexpFilters() error {
 	for containerName, filter := range c.RegexpFilters {
 		if !filter.Enabled {
-			continue // Skip disabled filters
+			continue
 		}
 		for i, pattern := range filter.Patterns {
 			if _, err := regexp.Compile(pattern); err != nil {
@@ -298,6 +305,5 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
-
 	return nil
 }
