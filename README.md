@@ -1,5 +1,13 @@
 # DLIA - Docker Log Intelligence Agent
 
+[![CI](https://github.com/zorak1103/dlia/actions/workflows/ci.yml/badge.svg)](https://github.com/zorak1103/dlia/actions/workflows/ci.yml)
+[![Release](https://github.com/zorak1103/dlia/actions/workflows/release.yml/badge.svg)](https://github.com/zorak1103/dlia/actions/workflows/release.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/zorak1103/dlia?style=flat)](https://goreportcard.com/report/github.com/zorak1103/dlia)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/zorak1103/dlia)](https://go.dev/)
+[![Go Reference](https://pkg.go.dev/badge/github.com/zorak1103/dlia.svg)](https://pkg.go.dev/github.com/zorak1103/dlia)
+[![License](https://img.shields.io/github/license/zorak1103/dlia)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/zorak1103/dlia)](https://github.com/zorak1103/dlia/releases/latest)
+
 **DLIA** is an AI-powered Docker log monitoring agent that uses Large Language Models (LLMs) to intelligently analyze container logs, detect anomalies, and provide contextual insights over time.
 
 ## ✨ Features
