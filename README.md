@@ -7,6 +7,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/zorak1103/dlia.svg)](https://pkg.go.dev/github.com/zorak1103/dlia)
 [![License](https://img.shields.io/github/license/zorak1103/dlia)](LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/zorak1103/dlia)](https://github.com/zorak1103/dlia/releases/latest)
+[![Docker Image](https://img.shields.io/docker/v/zorak1103/dlia?label=docker)](https://hub.docker.com/r/zorak1103/dlia)
 
 **DLIA** is an AI-powered Docker log monitoring agent that uses Large Language Models (LLMs) to intelligently analyze container logs, detect anomalies, and provide contextual insights over time.
 
@@ -23,16 +24,37 @@
 - 🔔 **Universal Notifications** - Email, Discord, Slack, and more via Shoutrrr.
 - 🐳 **Docker Native** - Direct Docker socket integration.
 - ⚡ **Single Binary** - No runtime dependencies except Docker.
+- 📦 **Multi-arch Docker Images** - Available for amd64 and arm64.
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- Go 1.23 or higher
 - Docker installed and running
 - LLM API access (OpenAI, OpenRouter, or local via Ollama)
 
 ### Installation
+
+#### Option 1: Docker (Recommended)
+
+```bash
+# Run a one-time scan
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v ./dlia-data:/data \
+  -e DLIA_LLM_API_KEY=your-key-here \
+  -e DLIA_LLM_MODEL=gpt-4o-mini \
+  zorak1103/dlia:latest scan
+
+# Or use docker-compose
+curl -O https://raw.githubusercontent.com/zorak1103/dlia/main/docker-compose.yml
+export DLIA_LLM_API_KEY=your-key-here
+docker compose run --rm dlia scan
+```
+
+#### Option 2: Build from Source
+
+Requires Go 1.25 or higher.
 
 ```bash
 # Clone the repository
@@ -365,6 +387,70 @@ output:
 output:
   knowledge_retention_days: 180
 ```
+
+## 🐳 Docker
+
+### Image Tags
+
+- `zorak1103/dlia:latest` - Latest stable release (multi-arch)
+- `zorak1103/dlia:vX.Y.Z` - Specific version (multi-arch)
+- `zorak1103/dlia:vX.Y.Z-amd64` - Platform-specific
+- `zorak1103/dlia:vX.Y.Z-arm64` - Platform-specific
+
+### Running with Docker
+
+```bash
+# Basic scan
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v ./dlia-data:/data \
+  -e DLIA_LLM_API_KEY=your-key-here \
+  zorak1103/dlia:latest scan
+
+# With custom config file
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  -v ./dlia-data:/data \
+  -v ./config.yaml:/data/config.yaml:ro \
+  -e DLIA_LLM_API_KEY=your-key-here \
+  zorak1103/dlia:latest scan --config /data/config.yaml
+
+# Dry run (test without calling LLM)
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  zorak1103/dlia:latest scan --dry-run
+
+# View help
+docker run --rm zorak1103/dlia:latest --help
+```
+
+### Docker Compose
+
+```yaml
+services:
+  dlia:
+    image: zorak1103/dlia:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./dlia-data:/data
+    environment:
+      - DLIA_LLM_API_KEY=${DLIA_LLM_API_KEY}
+      - DLIA_LLM_MODEL=${DLIA_LLM_MODEL:-gpt-4o-mini}
+    command: scan
+```
+
+### Scheduled Scans with Cron
+
+```bash
+# Add to crontab for hourly scans
+0 * * * * docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v /opt/dlia:/data -e DLIA_LLM_API_KEY=xxx zorak1103/dlia:latest scan
+```
+
+### Security Notes
+
+- Mount Docker socket as read-only (`:ro`)
+- Container runs as non-root user (UID 1000)
+- Minimal Alpine base image (~10MB)
 
 ## 🤝 Contributing
 
