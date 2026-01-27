@@ -32,6 +32,46 @@ archives:
       - LICENSE
       - README.md
 
+dockers:
+  - image_templates:
+      - "zorak1103/dlia:{{ .Version }}-amd64"
+      - "zorak1103/dlia:latest-amd64"
+    use: buildx
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/zorak1103/dlia"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=GIT_COMMIT={{ .FullCommit }}"
+      - "--build-arg=BUILD_DATE={{ .Date }}"
+
+  - image_templates:
+      - "zorak1103/dlia:{{ .Version }}-arm64"
+      - "zorak1103/dlia:latest-arm64"
+    use: buildx
+    goarch: arm64
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/zorak1103/dlia"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=GIT_COMMIT={{ .FullCommit }}"
+      - "--build-arg=BUILD_DATE={{ .Date }}"
+
+docker_manifests:
+  - name_template: "zorak1103/dlia:{{ .Version }}"
+    image_templates:
+      - "zorak1103/dlia:{{ .Version }}-amd64"
+      - "zorak1103/dlia:{{ .Version }}-arm64"
+  - name_template: "zorak1103/dlia:latest"
+    image_templates:
+      - "zorak1103/dlia:latest-amd64"
+      - "zorak1103/dlia:latest-arm64"
+
 checksum:
   name_template: 'checksums.txt'
 

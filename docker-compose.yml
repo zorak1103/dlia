@@ -1,0 +1,10 @@
+services:
+  dlia:
+    image: zorak1103/dlia:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./dlia-data:/data
+    environment:
+      - DLIA_LLM_API_KEY=${DLIA_LLM_API_KEY}
+      - DLIA_LLM_MODEL=${DLIA_LLM_MODEL:-gpt-4o-mini}
+    command: scan
