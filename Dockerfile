@@ -1,6 +1,6 @@
 # Runtime image for goreleaser
 # The binary is pre-built by goreleaser and copied into the context
-FROM alpine:3.21
+FROM alpine:3.23
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -g 1000 dlia \
     && adduser -D -u 1000 -G dlia dlia
