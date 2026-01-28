@@ -23,8 +23,5 @@
       "matchUpdateTypes": ["major"],
       "addLabels": ["dependency", "major"]
     }
-  ],
-  "gomod": {
-    "managerFilePatterns": ["/go\\.mod$/"]
-  }
+  ]
 }
