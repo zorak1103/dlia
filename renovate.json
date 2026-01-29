@@ -22,6 +22,11 @@
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["major"],
       "addLabels": ["dependency", "major"]
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "addLabels": ["dependency", "github-actions"],
+      "matchUpdateTypes": ["major"]
     }
   ]
 }
