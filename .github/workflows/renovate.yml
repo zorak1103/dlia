@@ -15,7 +15,7 @@ jobs:
     name: Renovate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Validate Renovate config
         uses: suzuki-shunsuke/github-action-renovate-config-validator@v1.1.1
