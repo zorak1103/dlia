@@ -1,6 +1,6 @@
 # GitHub Actions CI/CD Pipeline for DLIA
 # Docker Log Intelligence & Analysis
-# Go Version: 1.25.6
+# Go Version: 1.25.7
 # Repository: github.com/zorak1103/dlia
 
 name: CI
@@ -12,7 +12,7 @@ on:
     branches: [main]
 
 env:
-  GO_VERSION: "1.25.6"
+  GO_VERSION: "1.25.7"
   CGO_ENABLED: "0"
 
 jobs:
