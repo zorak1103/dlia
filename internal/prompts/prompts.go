@@ -213,7 +213,7 @@ func (pl *PromptLoader) ExecutiveSummaryPrompt(containerResults map[string]strin
 	// Build container analyzes section
 	var sb strings.Builder
 	for containerName, analysis := range containerResults {
-		sb.WriteString(fmt.Sprintf("### %s\n%s\n\n", containerName, analysis))
+		fmt.Fprintf(&sb, "### %s\n%s\n\n", containerName, analysis)
 	}
 
 	tmpl, err := template.New("executive_summary").Option("missingkey=error").Parse(templateContent)
@@ -362,9 +362,9 @@ func ExecutiveSummaryPrompt(containerResults map[string]string) string {
 	if loader == nil {
 		var sb strings.Builder
 		sb.WriteString("Generate a concise executive summary of this Docker log scan.\n\n")
-		sb.WriteString(fmt.Sprintf("Analyzed %d container(s):\n\n", len(containerResults)))
+		fmt.Fprintf(&sb, "Analyzed %d container(s):\n\n", len(containerResults))
 		for containerName, analysis := range containerResults {
-			sb.WriteString(fmt.Sprintf("### %s\n%s\n\n", containerName, analysis))
+			fmt.Fprintf(&sb, "### %s\n%s\n\n", containerName, analysis)
 		}
 		sb.WriteString(`Create a brief executive summary (max 250 words) for notification delivery:
 

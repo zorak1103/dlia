@@ -70,7 +70,7 @@ func FormatLogs(logs []docker.LogEntry) string {
 	var sb strings.Builder
 	for _, entry := range logs {
 		if entry.Timestamp != "" {
-			sb.WriteString(fmt.Sprintf("[%s] %s\n", entry.Timestamp, entry.Message))
+			fmt.Fprintf(&sb, "[%s] %s\n", entry.Timestamp, entry.Message)
 		} else {
 			sb.WriteString(entry.Message + "\n")
 		}

@@ -44,8 +44,8 @@ func (n *Notifier) SendScanSummary(summary string, containerCount int, issuesFou
 
 	var sb strings.Builder
 	sb.WriteString("🐳 DLIA Scan Complete\n")
-	sb.WriteString(fmt.Sprintf("📅 Time: %s\n", timestamp))
-	sb.WriteString(fmt.Sprintf("📦 Containers: %d\n", containerCount))
+	fmt.Fprintf(&sb, "📅 Time: %s\n", timestamp)
+	fmt.Fprintf(&sb, "📦 Containers: %d\n", containerCount)
 
 	if issuesFound {
 		sb.WriteString("⚠️  Issues detected\n")

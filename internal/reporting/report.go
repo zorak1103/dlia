@@ -21,11 +21,11 @@ func GenerateScanReport(containerName string, analysis *chunking.AnalyzeResult, 
 	timestamp := time.Now().Format(time.RFC1123)
 
 	// Header
-	sb.WriteString(fmt.Sprintf("# Scan Report: %s\n\n", containerName))
-	sb.WriteString(fmt.Sprintf("**Date:** %s  \n", timestamp))
-	sb.WriteString(fmt.Sprintf("**Container:** `%s`  \n", containerName))
-	sb.WriteString(fmt.Sprintf("**Log Entries:** %d  \n", analysis.OriginalCount))
-	sb.WriteString(fmt.Sprintf("**Tokens Used:** %d\n\n", analysis.TokensUsed))
+	fmt.Fprintf(&sb, "# Scan Report: %s\n\n", containerName)
+	fmt.Fprintf(&sb, "**Date:** %s  \n", timestamp)
+	fmt.Fprintf(&sb, "**Container:** `%s`  \n", containerName)
+	fmt.Fprintf(&sb, "**Log Entries:** %d  \n", analysis.OriginalCount)
+	fmt.Fprintf(&sb, "**Tokens Used:** %d\n\n", analysis.TokensUsed)
 
 	// Analysis Section
 	sb.WriteString("## 🤖 AI Analysis\n\n")
@@ -37,20 +37,20 @@ func GenerateScanReport(containerName string, analysis *chunking.AnalyzeResult, 
 		sb.WriteString("## 🔍 Pre-Processing Statistics\n\n")
 		sb.WriteString("| Metric | Value |\n")
 		sb.WriteString("|--------|-------|\n")
-		sb.WriteString(fmt.Sprintf("| Total Log Lines | %d |\n", analysis.FilterStats.LinesTotal))
-		sb.WriteString(fmt.Sprintf("| Lines Filtered (Regexp) | %d |\n", analysis.FilterStats.LinesFiltered))
-		sb.WriteString(fmt.Sprintf("| Lines Kept | %d |\n", analysis.FilterStats.LinesKept))
+		fmt.Fprintf(&sb, "| Total Log Lines | %d |\n", analysis.FilterStats.LinesTotal)
+		fmt.Fprintf(&sb, "| Lines Filtered (Regexp) | %d |\n", analysis.FilterStats.LinesFiltered)
+		fmt.Fprintf(&sb, "| Lines Kept | %d |\n", analysis.FilterStats.LinesKept)
 
 		filterPercentage := calculateSavings(analysis.FilterStats.LinesTotal, analysis.FilterStats.LinesKept)
-		sb.WriteString(fmt.Sprintf("| Filter Reduction | %.1f%% |\n", filterPercentage))
+		fmt.Fprintf(&sb, "| Filter Reduction | %.1f%% |\n", filterPercentage)
 
 		// Estimate cost savings (approximate tokens saved)
 		// Rough estimate: each filtered line would have used ~20 tokens on average
 		estimatedTokensSaved := analysis.FilterStats.LinesFiltered * 20
-		sb.WriteString(fmt.Sprintf("| Est. Tokens Saved | ~%d |\n", estimatedTokensSaved))
+		fmt.Fprintf(&sb, "| Est. Tokens Saved | ~%d |\n", estimatedTokensSaved)
 
 		sb.WriteString("\n**Cost Impact:** By filtering log lines before LLM processing, ")
-		sb.WriteString(fmt.Sprintf("approximately %d tokens were saved. ", estimatedTokensSaved))
+		fmt.Fprintf(&sb, "approximately %d tokens were saved. ", estimatedTokensSaved)
 		sb.WriteString("This reduces API costs and improves processing speed.\n\n")
 	}
 
@@ -58,13 +58,13 @@ func GenerateScanReport(containerName string, analysis *chunking.AnalyzeResult, 
 	sb.WriteString("## 📊 Statistics\n\n")
 	sb.WriteString("| Metric | Value |\n")
 	sb.WriteString("|--------|-------|\n")
-	sb.WriteString(fmt.Sprintf("| Original Logs | %d |\n", analysis.OriginalCount))
-	sb.WriteString(fmt.Sprintf("| Processed Logs | %d |\n", analysis.ProcessedCount))
+	fmt.Fprintf(&sb, "| Original Logs | %d |\n", analysis.OriginalCount)
+	fmt.Fprintf(&sb, "| Processed Logs | %d |\n", analysis.ProcessedCount)
 	if analysis.Deduplicated {
-		sb.WriteString(fmt.Sprintf("| Deduplication | %.1f%% |\n", calculateSavings(analysis.OriginalCount, analysis.ProcessedCount)))
+		fmt.Fprintf(&sb, "| Deduplication | %.1f%% |\n", calculateSavings(analysis.OriginalCount, analysis.ProcessedCount))
 	}
-	sb.WriteString(fmt.Sprintf("| Tokens | %d |\n", analysis.TokensUsed))
-	sb.WriteString(fmt.Sprintf("| Chunks | %d |\n", analysis.ChunksUsed))
+	fmt.Fprintf(&sb, "| Tokens | %d |\n", analysis.TokensUsed)
+	fmt.Fprintf(&sb, "| Chunks | %d |\n", analysis.ChunksUsed)
 
 	return sb.String()
 }

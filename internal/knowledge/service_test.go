@@ -313,9 +313,9 @@ func TestPruneEntries_PreservesRecent(t *testing.T) {
 	content.WriteString("## Service History\n")
 
 	for i, ts := range timestamps {
-		content.WriteString(fmt.Sprintf("\n### Scan: %s\n", ts.Format(time.RFC3339)))
+		fmt.Fprintf(&content, "\n### Scan: %s\n", ts.Format(time.RFC3339))
 		content.WriteString("**Status:** 🟢 Healthy\n\n")
-		content.WriteString(fmt.Sprintf("Entry %d\n\n", i+1))
+		fmt.Fprintf(&content, "Entry %d\n\n", i+1)
 		content.WriteString("---\n")
 	}
 
@@ -607,9 +607,9 @@ func BenchmarkPruneEntries(b *testing.B) {
 	// Create content with 100 entries
 	for i := 0; i < 100; i++ {
 		ts := now.Add(time.Duration(-i) * 24 * time.Hour)
-		content.WriteString(fmt.Sprintf("\n### Scan: %s\n", ts.Format(time.RFC3339)))
+		fmt.Fprintf(&content, "\n### Scan: %s\n", ts.Format(time.RFC3339))
 		content.WriteString("**Status:** 🟢 Healthy\n\n")
-		content.WriteString(fmt.Sprintf("Entry %d\n\n", i+1))
+		fmt.Fprintf(&content, "Entry %d\n\n", i+1)
 		content.WriteString("---\n")
 	}
 
