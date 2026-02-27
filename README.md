@@ -9,6 +9,7 @@
 [![License](https://img.shields.io/github/license/zorak1103/dlia)](LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/zorak1103/dlia)](https://github.com/zorak1103/dlia/releases/latest)
 [![Docker Image](https://img.shields.io/docker/v/zorak1103/dlia?label=docker)](https://hub.docker.com/r/zorak1103/dlia)
+[![Docker Pulls](https://img.shields.io/docker/pulls/zorak1103/dlia)](https://hub.docker.com/r/zorak1103/dlia)
 
 **DLIA** is an AI-powered Docker log monitoring agent that uses Large Language Models (LLMs) to intelligently analyze container logs, detect anomalies, and provide contextual insights over time.
 
