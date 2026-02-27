@@ -56,7 +56,7 @@ docker compose run --rm dlia scan
 
 #### Option 2: Build from Source
 
-Requires Go 1.25 or higher.
+Requires Go 1.26 or higher.
 
 ```bash
 # Clone the repository
