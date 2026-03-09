@@ -1,6 +1,6 @@
 module github.com/zorak1103/dlia
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/containrrr/shoutrrr v0.8.0
