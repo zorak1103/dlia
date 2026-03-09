@@ -47,4 +47,6 @@ config.yaml
 # Keep example configs
 !config.yaml.example
 !.env.example
-.claude/settings.local.json
+.claude/
+CLAUDE.md
+
