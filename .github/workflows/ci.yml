@@ -127,7 +127,35 @@ jobs:
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
       - name: Run govulncheck
-        run: govulncheck ./...
+        run: |
+          govulncheck -json ./... > vulncheck_output.json 2>&1 || true
+
+          FOUND_VULNS=$(grep -oP '"id":\s*"GO-[^"]*"' vulncheck_output.json | grep -oP 'GO-[^"]*' | sort -u)
+
+          if [ -z "$FOUND_VULNS" ]; then
+            echo "No vulnerabilities found."
+            exit 0
+          fi
+
+          echo "Vulnerabilities detected:"
+          echo "$FOUND_VULNS"
+
+          IGNORED=""
+          if [ -f .govulncheck-ignore ]; then
+            IGNORED=$(grep -v '^#' .govulncheck-ignore | grep -v '^$' | sort -u)
+          fi
+
+          UNIGNORED=$(comm -23 <(echo "$FOUND_VULNS") <(echo "$IGNORED"))
+
+          if [ -z "$UNIGNORED" ]; then
+            echo "All found vulnerabilities are in .govulncheck-ignore (no fix available). Passing."
+            exit 0
+          fi
+
+          echo "::error::Unignored vulnerabilities found:"
+          echo "$UNIGNORED"
+          govulncheck ./...
+          exit 1
 
   # ============================================================================
   # SECRET DETECTION

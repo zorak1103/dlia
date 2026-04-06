@@ -1,0 +1,13 @@
+# govulncheck vulnerability ignore list
+# These vulnerabilities have no fix available (Fixed in: N/A).
+# Remove entries once a patched version is released upstream.
+#
+# Format: one vulnerability ID per line, lines starting with # are comments.
+
+# Moby AuthZ plugin bypass with oversized request bodies
+# docker/docker server-side concern; DLIA uses Docker as a client only
+GO-2026-4887
+
+# Moby off-by-one error in plugin privilege validation
+# docker/docker server-side concern; DLIA uses Docker as a client only
+GO-2026-4883
