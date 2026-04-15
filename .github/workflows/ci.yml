@@ -130,7 +130,7 @@ jobs:
         run: |
           govulncheck -json ./... > vulncheck_output.json 2>&1 || true
 
-          FOUND_VULNS=$(grep -oP '"id":\s*"GO-[^"]*"' vulncheck_output.json | grep -oP 'GO-[^"]*' | sort -u)
+          FOUND_VULNS=$(grep -oP '"finding":\{"osv":"GO-[^"]*"' vulncheck_output.json | grep -oP 'GO-[^"]*' | sort -u)
 
           if [ -z "$FOUND_VULNS" ]; then
             echo "No vulnerabilities found."
