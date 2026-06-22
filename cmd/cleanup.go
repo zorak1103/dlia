@@ -22,7 +22,7 @@ var (
 )
 
 var cleanupCmd = &cobra.Command{
-	Use:   "cleanup",
+	Use:   cmdCleanup,
 	Short: "Remove obsolete container data",
 	Long: `Identify and remove data for containers that no longer exist in Docker.
 
@@ -46,7 +46,7 @@ you encounter configuration errors.`,
 }
 
 var cleanupListCmd = &cobra.Command{
-	Use:   "list",
+	Use:   cmdList,
 	Short: "List obsolete container data",
 	Long: `Display containers that exist in storage but no longer exist in Docker.
 

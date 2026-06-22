@@ -12,6 +12,11 @@ import (
 	"github.com/zorak1103/dlia/internal/sanitize"
 )
 
+const (
+	statusHealthy        = "🟢 Healthy"
+	statusIssuesDetected = "🔴 Issues Detected"
+)
+
 // UpdateServiceKB appends analysis results to the container's knowledge base file.
 func UpdateServiceKB(containerName string, analysis *chunking.AnalyzeResult, cfg *config.Config) error {
 	kbDir := filepath.Join(cfg.Output.KnowledgeBaseDir, "services")
@@ -22,10 +27,10 @@ func UpdateServiceKB(containerName string, analysis *chunking.AnalyzeResult, cfg
 	filePath := filepath.Clean(filepath.Join(kbDir, sanitize.Name(containerName)+".md"))
 
 	// Determine status based on analysis content (simple heuristic)
-	status := "🟢 Healthy"
+	status := statusHealthy
 	if strings.Contains(strings.ToLower(analysis.Analysis), "critical") ||
 		strings.Contains(strings.ToLower(analysis.Analysis), "error") {
-		status = "🔴 Issues Detected"
+		status = statusIssuesDetected
 	} else if strings.Contains(strings.ToLower(analysis.Analysis), "warning") {
 		status = "🟡 Warnings"
 	}
@@ -56,7 +61,7 @@ func UpdateServiceKB(containerName string, analysis *chunking.AnalyzeResult, cfg
 	content += newEntry
 
 	// Write back
-	if err := os.WriteFile(filePath, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(filePath, []byte(content), 0o600); err != nil { //nolint:gosec // path is constructed from config dir + sanitized container name via internal/sanitize
 		return fmt.Errorf("failed to write KB file: %w", err)
 	}
 

@@ -14,7 +14,7 @@ var (
 )
 
 var initCmd = &cobra.Command{
-	Use:   "init",
+	Use:   cmdInit,
 	Short: "Initialize DLIA configuration and directory structure",
 	Long: `Init creates the necessary configuration files and directories for DLIA.
 

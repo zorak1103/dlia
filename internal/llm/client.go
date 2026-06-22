@@ -105,7 +105,7 @@ type retryResult struct {
 }
 
 // executeWithRetry performs an HTTP request with retry logic for transient errors.
-func (c *clientImpl) executeWithRetry(httpReq *http.Request, maxRetries int) ([]byte, int, error) {
+func (c *clientImpl) executeWithRetry(httpReq *http.Request, maxRetries int) (body []byte, statusCode int, err error) {
 	var lastErr error
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		result := c.executeRequest(httpReq)

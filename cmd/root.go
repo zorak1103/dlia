@@ -10,6 +10,15 @@ import (
 	"github.com/zorak1103/dlia/internal/version"
 )
 
+const (
+	cmdCleanup = "cleanup"
+	cmdConfig  = "config"
+	cmdInit    = "init"
+	cmdList    = "list"
+	cmdScan    = "scan"
+	cmdState   = "state"
+)
+
 var (
 	cfgFile       string
 	verbose       bool
@@ -31,7 +40,7 @@ It features:
   - Markdown-based persistent knowledge base`,
 	Version: version.GetFullVersion(),
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-		skipConfig := cmd.Name() == "init" || cmd.Name() == "help" || cmd.Name() == "version"
+		skipConfig := cmd.Name() == cmdInit || cmd.Name() == "help" || cmd.Name() == "version"
 		if skipConfig {
 			return nil
 		}

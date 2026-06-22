@@ -18,7 +18,7 @@ import (
 )
 
 var scanCmd = &cobra.Command{
-	Use:   "scan",
+	Use:   cmdScan,
 	Short: "Perform a one-time scan of Docker container logs",
 	Long: `Scan performs a single analysis pass over Docker container logs.
 

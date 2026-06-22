@@ -10,7 +10,7 @@ import (
 )
 
 var stateCmd = &cobra.Command{
-	Use:   "state",
+	Use:   cmdState,
 	Short: "Manage log scan state (cursors/timestamps)",
 	Long: `State management commands for inspecting and resetting the log scan state.
 
@@ -19,7 +19,7 @@ allowing incremental scanning without reprocessing old logs.`,
 }
 
 var stateListCmd = &cobra.Command{
-	Use:   "list",
+	Use:   cmdList,
 	Short: "List current log scan state for all containers",
 	Long: `Display the current state file showing which containers have been scanned
 and the timestamp of the last processed log entry for each.`,
