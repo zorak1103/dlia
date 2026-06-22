@@ -1,3 +1,4 @@
+// coverage-exempt: Docker wire layer requires a live daemon; interface is mocked in tests
 // Package docker provides a client for interacting with the Docker API.
 package docker
 

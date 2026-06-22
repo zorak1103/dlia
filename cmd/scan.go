@@ -17,6 +17,8 @@ import (
 	"github.com/zorak1103/dlia/internal/state"
 )
 
+// coverage-exempt: requires live Docker daemon and LLM API — covered by integration tests
+
 var scanCmd = &cobra.Command{
 	Use:   cmdScan,
 	Short: "Perform a one-time scan of Docker container logs",

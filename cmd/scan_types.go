@@ -1,3 +1,4 @@
+// coverage-exempt: thin Cobra flag adapter; newScanConfigFromCmd is tested indirectly via scan integration tests
 package cmd
 
 import "github.com/spf13/cobra"

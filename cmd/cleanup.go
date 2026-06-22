@@ -1,3 +1,4 @@
+// coverage-exempt: Cobra UI command wiring Docker I/O — covered by integration tests
 package cmd
 
 import (
