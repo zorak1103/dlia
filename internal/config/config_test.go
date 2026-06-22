@@ -439,3 +439,49 @@ func TestErr_ErrorVariable(t *testing.T) {
 	assert.NotNil(t, Err)
 	assert.Equal(t, "config error", Err.Error())
 }
+
+func TestValidate_InvalidRegexpPattern(t *testing.T) {
+	cfg := &Config{
+		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test"},
+		Docker: DockerConfig{SocketPath: "test"},
+		Output: OutputConfig{
+			ReportsDir:             "test",
+			KnowledgeBaseDir:       "test",
+			StateFile:              "test",
+			KnowledgeRetentionDays: 30,
+		},
+		RegexpFilters: map[string]RegexpFilter{
+			"mycontainer": {
+				Enabled:  true,
+				Patterns: []string{"[invalid"},
+			},
+		},
+	}
+
+	err := cfg.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid regexp pattern")
+}
+
+func TestValidate_DisabledRegexpFilter_NotValidated(t *testing.T) {
+	cfg := &Config{
+		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test"},
+		Docker: DockerConfig{SocketPath: "test"},
+		Output: OutputConfig{
+			ReportsDir:             "test",
+			KnowledgeBaseDir:       "test",
+			StateFile:              "test",
+			KnowledgeRetentionDays: 30,
+		},
+		RegexpFilters: map[string]RegexpFilter{
+			"mycontainer": {
+				Enabled:  false,
+				Patterns: []string{"[invalid"},
+			},
+		},
+	}
+
+	// Disabled filters should not be validated
+	err := cfg.Validate()
+	assert.NoError(t, err)
+}

@@ -1,3 +1,4 @@
+// coverage-exempt: Docker wire layer requires a live daemon; interface is mocked in tests
 // Package docker provides a client for interacting with the Docker API.
 package docker
 
@@ -131,11 +132,11 @@ func (w *dockerClientWrapper) ListContainers(ctx context.Context, opts FilterOpt
 		}
 	}
 
-	for _, ctr := range containers {
+	for i := range containers {
 		// Extract container name (remove leading slash)
 		name := ""
-		if len(ctr.Names) > 0 {
-			name = ctr.Names[0]
+		if len(containers[i].Names) > 0 {
+			name = containers[i].Names[0]
 			if name != "" && name[0] == '/' {
 				name = name[1:]
 			}
@@ -147,11 +148,11 @@ func (w *dockerClientWrapper) ListContainers(ctx context.Context, opts FilterOpt
 		}
 
 		result = append(result, Container{
-			ID:     ctr.ID,
+			ID:     containers[i].ID,
 			Name:   name,
-			State:  ctr.State,
-			Image:  ctr.Image,
-			Labels: ctr.Labels,
+			State:  containers[i].State,
+			Image:  containers[i].Image,
+			Labels: containers[i].Labels,
 		})
 	}
 

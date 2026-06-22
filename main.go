@@ -1,3 +1,4 @@
+// coverage-exempt: entry point with panic recovery — tested via cmd package
 // Package main is the entry point for the DLIA application.
 package main
 

@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const streamStdout = "stdout"
+
 // LogsOptions contains options for reading container logs
 type LogsOptions struct {
 	Since      time.Time // Read logs since this timestamp
@@ -62,7 +64,7 @@ func parseLogLine(line string) *LogEntry {
 		// No timestamp, treat entire line as message
 		return &LogEntry{
 			Timestamp: "",
-			Stream:    "stdout",
+			Stream:    streamStdout,
 			Message:   line,
 		}
 	}
@@ -75,7 +77,7 @@ func parseLogLine(line string) *LogEntry {
 
 	return &LogEntry{
 		Timestamp: timestamp,
-		Stream:    "stdout", // Docker multiplexing already handled
+		Stream:    streamStdout,
 		Message:   message,
 	}
 }

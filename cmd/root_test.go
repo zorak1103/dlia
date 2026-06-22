@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -356,6 +357,22 @@ func TestExecute_Exists(t *testing.T) {
 	// We can't easily test the actual execution since it calls os.Exit(1) on error
 	// This test just verifies the function is properly defined
 	t.Log("Execute function is defined and available")
+}
+
+func TestGetConfigLoadError(t *testing.T) {
+	original := errConfigLoad
+	defer func() { errConfigLoad = original }()
+
+	errConfigLoad = nil
+	if err := GetConfigLoadError(); err != nil {
+		t.Errorf("expected nil, got %v", err)
+	}
+
+	sentinel := errors.New("load failed")
+	errConfigLoad = sentinel
+	if got := GetConfigLoadError(); !errors.Is(got, sentinel) {
+		t.Errorf("expected sentinel error, got %v", got)
+	}
 }
 
 func TestRootCmd_SubcommandInit(t *testing.T) {

@@ -448,3 +448,37 @@ func TestGenerateScanReport_NoDeduplicationRow(t *testing.T) {
 		t.Error("GenerateScanReport() should not include deduplication row when Deduplicated is false")
 	}
 }
+
+func TestGenerateScanReport_WithFilterStats(t *testing.T) {
+	t.Parallel()
+
+	analysis := &chunking.AnalyzeResult{
+		Analysis:       "Filter stats analysis",
+		OriginalCount:  1000,
+		ProcessedCount: 600,
+		TokensUsed:     500,
+		ChunksUsed:     1,
+		FilterStats: chunking.FilterStats{
+			LinesTotal:    1000,
+			LinesFiltered: 400,
+			LinesKept:     600,
+		},
+	}
+
+	result := GenerateScanReport("mycontainer", analysis, nil)
+
+	wantContains := []string{
+		"## 🔍 Pre-Processing Statistics",
+		"| Total Log Lines | 1000 |",
+		"| Lines Filtered (Regexp) | 400 |",
+		"| Lines Kept | 600 |",
+		"| Filter Reduction |",
+		"| Est. Tokens Saved |",
+		"Cost Impact",
+	}
+	for _, want := range wantContains {
+		if !strings.Contains(result, want) {
+			t.Errorf("GenerateScanReport() with filter stats missing %q\nGot:\n%s", want, result)
+		}
+	}
+}

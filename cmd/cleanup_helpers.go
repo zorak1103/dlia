@@ -1,3 +1,4 @@
+// coverage-exempt: Docker-dependent helpers; pure sub-functions covered in cleanup_helpers_test.go
 package cmd
 
 import (

@@ -67,7 +67,7 @@ func validateConfigOrExit(cfg *config.Config, _ string) error {
 }
 
 var configCmd = &cobra.Command{
-	Use:   "config",
+	Use:   cmdConfig,
 	Short: "Display the effective configuration",
 	Long: `Display the effective configuration that DLIA will use at runtime.
 
