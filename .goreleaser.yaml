@@ -32,39 +32,21 @@ archives:
       - LICENSE
       - README.md
 
-dockers:
-  - image_templates:
-      - "zorak1103/dlia:{{ .Version }}-amd64"
-      - "zorak1103/dlia:latest-amd64"
-    use: buildx
-    dockerfile: Dockerfile
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.source=https://github.com/zorak1103/dlia"
-
-  - image_templates:
-      - "zorak1103/dlia:{{ .Version }}-arm64"
-      - "zorak1103/dlia:latest-arm64"
-    use: buildx
-    goarch: arm64
-    dockerfile: Dockerfile
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.source=https://github.com/zorak1103/dlia"
-
-docker_manifests:
-  - name_template: "zorak1103/dlia:{{ .Version }}"
+# Multi-arch Docker images using dockers_v2 (modern API — produces one manifest,
+# not separate per-arch images). Requires QEMU + Buildx in the release workflow.
+dockers_v2:
+  - id: dlia-multiarch
     image_templates:
-      - "zorak1103/dlia:{{ .Version }}-amd64"
-      - "zorak1103/dlia:{{ .Version }}-arm64"
-  - name_template: "zorak1103/dlia:latest"
-    image_templates:
-      - "zorak1103/dlia:latest-amd64"
-      - "zorak1103/dlia:latest-arm64"
+      - "zorak1103/dlia:{{ .Version }}"
+      - "zorak1103/dlia:latest"
+    build_flag_templates:
+      - "--platform=linux/amd64,linux/arm64"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.url=https://github.com/zorak1103/dlia"
+    use: buildx
 
 checksum:
   name_template: 'checksums.txt'

@@ -27,6 +27,61 @@
       "matchManagers": ["github-actions"],
       "addLabels": ["dependency", "github-actions"],
       "matchUpdateTypes": ["major"]
+    },
+    {
+      "description": "Pin golangci-lint installed via go install",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["github.com/golangci/golangci-lint/v2"],
+      "automerge": true
+    },
+    {
+      "description": "Pin govulncheck installed via go install — skip v1.4.0 (generics panic)",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["golang.org/x/vuln"],
+      "allowedVersions": "<1.4.0 || >1.4.0",
+      "automerge": true
+    }
+  ],
+  "customManagers": [
+    {
+      "description": "Update golangci-lint installed via go install",
+      "customType": "regex",
+      "managerFilePatterns": ["/\\.github/workflows/.*\\.ya?ml$/", "/Taskfile\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=go depName=github.com/golangci/golangci-lint/v2\\n.*golangci-lint@(?<currentValue>[^\\s\"]+)"
+      ],
+      "datasourceTemplate": "go",
+      "depNameTemplate": "github.com/golangci/golangci-lint/v2"
+    },
+    {
+      "description": "Update govulncheck installed via go install",
+      "customType": "regex",
+      "managerFilePatterns": ["/\\.github/workflows/.*\\.ya?ml$/", "/Taskfile\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=go depName=golang.org/x/vuln\\n.*govulncheck@(?<currentValue>[^\\s\"]+)"
+      ],
+      "datasourceTemplate": "go",
+      "depNameTemplate": "golang.org/x/vuln"
+    },
+    {
+      "description": "Update TruffleHog action SHA pin",
+      "customType": "regex",
+      "managerFilePatterns": ["/\\.github/workflows/.*\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=github-releases depName=trufflesecurity/trufflehog\\n.*trufflesecurity/trufflehog@(?<currentValue>[^\\s]+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "trufflesecurity/trufflehog"
+    },
+    {
+      "description": "Update GoReleaser version in release workflow",
+      "customType": "regex",
+      "managerFilePatterns": ["/\\.github/workflows/.*\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=github-releases depName=goreleaser/goreleaser\\n\\s+version: (?<currentValue>[^\\s\"]+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "goreleaser/goreleaser"
     }
   ]
 }
