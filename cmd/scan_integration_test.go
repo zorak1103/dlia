@@ -17,8 +17,6 @@ func TestScanCmd_Integration(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	setupTestConfig(t)
-
 	// This would be a full integration test that requires:
 	// 1. A running Docker daemon
 	// 2. Test containers

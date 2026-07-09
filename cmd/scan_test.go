@@ -114,16 +114,6 @@ func (m *MockLLMClient) ChatCompletion(_ context.Context, _ []llm.ChatMessage, _
 	}, m.analyzeError
 }
 
-func setupTestConfig(_ *testing.T) {
-	viper.Reset()
-	viper.Set("docker.socket", "")
-	viper.Set("llm.base_url", "http://mock-api")
-	viper.Set("llm.api_key", "mock-key")
-	viper.Set("llm.model", "mock-model")
-	viper.Set("llm.max_tokens", 4000)
-	viper.Set("state.file", "test-state.json")
-}
-
 func TestScanCmd_Flags(t *testing.T) {
 	cmd := scanCmd
 
@@ -145,8 +135,6 @@ func TestScanCmd_Flags(t *testing.T) {
 
 func TestScanCmd_DryRun(t *testing.T) {
 	t.Parallel()
-
-	setupTestConfig(t)
 
 	// Create mock containers
 	containers := []docker.Container{
@@ -201,8 +189,6 @@ func TestScanCmd_DryRun(t *testing.T) {
 }
 
 func TestScanCmd_WithFilter(t *testing.T) {
-	setupTestConfig(t)
-
 	// Create mock containers
 	containers := []docker.Container{
 		{
@@ -244,8 +230,6 @@ func TestScanCmd_WithFilter(t *testing.T) {
 }
 
 func TestScanCmd_LookbackOption(t *testing.T) {
-	setupTestConfig(t)
-
 	// Test lookback parsing
 	tests := []struct {
 		input    string
@@ -345,8 +329,6 @@ func TestScanCmd_ConfigValidation(t *testing.T) {
 }
 
 func TestScanCmd_ErrorHandling(t *testing.T) {
-	setupTestConfig(t)
-
 	tests := []struct {
 		name       string
 		setupMocks func() (*MockDockerClient, *MockLLMClient)
@@ -440,8 +422,6 @@ func TestScanCmd_OutputFormatting(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			setupTestConfig(t)
 
 			// Capture output
 			var buf bytes.Buffer
