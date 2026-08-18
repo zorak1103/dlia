@@ -36,17 +36,20 @@ archives:
 # not separate per-arch images). Requires QEMU + Buildx in the release workflow.
 dockers_v2:
   - id: dlia-multiarch
-    image_templates:
-      - "zorak1103/dlia:{{ .Version }}"
-      - "zorak1103/dlia:latest"
-    build_flag_templates:
-      - "--platform=linux/amd64,linux/arm64"
-      - "--label=org.opencontainers.image.created={{ .Date }}"
-      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.url=https://github.com/zorak1103/dlia"
-    use: buildx
+    images:
+      - "zorak1103/dlia"
+    tags:
+      - "{{ .Version }}"
+      - "latest"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      "org.opencontainers.image.created": "{{ .Date }}"
+      "org.opencontainers.image.title": "{{ .ProjectName }}"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "org.opencontainers.image.version": "{{ .Version }}"
+      "org.opencontainers.image.url": "https://github.com/zorak1103/dlia"
 
 checksum:
   name_template: 'checksums.txt'
