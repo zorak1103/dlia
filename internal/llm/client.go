@@ -106,8 +106,9 @@ type retryResult struct {
 
 // executeWithRetry performs an HTTP request with retry logic for transient errors.
 func (c *clientImpl) executeWithRetry(httpReq *http.Request, maxRetries int) (body []byte, statusCode int, err error) {
+	ctx := httpReq.Context()
 	var lastErr error
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := range maxRetries {
 		result := c.executeRequest(httpReq)
 		if result.err == nil && result.statusCode == http.StatusOK {
 			return result.body, result.statusCode, nil
@@ -124,7 +125,11 @@ func (c *clientImpl) executeWithRetry(httpReq *http.Request, maxRetries int) (bo
 		// Retry on network errors or 5xx status codes
 		if result.err != nil || result.statusCode >= 500 {
 			lastErr = result.err
-			time.Sleep(time.Duration(attempt+1) * time.Second)
+			select {
+			case <-ctx.Done():
+				return nil, 0, fmt.Errorf("retry backoff canceled: %w", ctx.Err())
+			case <-time.After(time.Duration(attempt+1) * time.Second):
+			}
 			continue
 		}
 

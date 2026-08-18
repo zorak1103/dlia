@@ -3,6 +3,7 @@ package notification
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/zorak1103/dlia/internal/config"
@@ -603,7 +604,7 @@ func TestNotifier_SendScanSummary_MessageFormat(t *testing.T) {
 					t.Error("SendScanSummary() expected error with invalid URL, got nil")
 				}
 				// Check that error is wrapped properly
-				if err != nil && !contains(err.Error(), "notification failed") {
+				if err != nil && !strings.Contains(err.Error(), "notification failed") {
 					t.Errorf("SendScanSummary() error should contain 'notification failed', got: %v", err)
 				}
 			}
@@ -625,7 +626,7 @@ func TestNotifier_SendScanSummary_ErrorWrapping(t *testing.T) {
 
 	// Check error message format
 	errMsg := err.Error()
-	if !contains(errMsg, "notification failed") {
+	if !strings.Contains(errMsg, "notification failed") {
 		t.Errorf("Error should be wrapped with 'notification failed', got: %s", errMsg)
 	}
 }
@@ -732,19 +733,6 @@ func TestNotifier_SendScanSummary_BothBranches(t *testing.T) {
 }
 
 // Helper function to check if string contains substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsMiddle(s, substr)))
-}
-
-func containsMiddle(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
 // TestNewNotifier_ConfigVariations tests various config combinations
 func TestNewNotifier_ConfigVariations(t *testing.T) {
 	tests := []struct {

@@ -436,7 +436,7 @@ func TestScanCmd_OutputFormatting(t *testing.T) {
 
 			output := buf.String()
 
-			if tt.dryRun && !contains(output, "Dry run mode") {
+			if tt.dryRun && !strings.Contains(output, "Dry run mode") {
 				t.Error("Expected dry run message in output")
 			}
 		})
@@ -444,19 +444,6 @@ func TestScanCmd_OutputFormatting(t *testing.T) {
 }
 
 // Helper function to check if string contains substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-			func() bool {
-				for i := 1; i <= len(s)-len(substr); i++ {
-					if s[i:i+len(substr)] == substr {
-						return true
-					}
-				}
-				return false
-			}())))
-}
-
 func TestScanCmd_HelpOutput(t *testing.T) {
 	// Test the actual scanCmd's help output
 	var buf bytes.Buffer

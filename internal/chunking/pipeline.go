@@ -29,7 +29,7 @@ const (
 // Pipeline orchestrates the log processing pipeline
 type Pipeline struct {
 	tokenizer                  TokenizerInterface
-	client                     llm.ClientInterface
+	client                     AnalysisClient
 	maxTokens                  int
 	ignoreDir                  string
 	config                     *config.Config
@@ -37,16 +37,25 @@ type Pipeline struct {
 	promptLoader               *prompts.PromptLoader
 }
 
+// AnalysisClient is the subset of llm.Client the pipeline depends on for
+// analyzing and summarizing logs. Declared here, at the consumer, rather
+// than in the llm package, so the dependency stays as narrow as what
+// Pipeline actually calls.
+type AnalysisClient interface {
+	Analyze(ctx context.Context, containerName, systemPrompt, userPrompt string) (string, *llm.TokenUsage, error)
+	SummarizeChunk(ctx context.Context, containerName, systemPrompt, chunkPrompt string) (string, error)
+}
+
 // NewPipeline creates a new processing pipeline with default configuration.
 // The pipeline handles log deduplication, optional regexp filtering, token counting,
 // and LLM-based analysis with automatic chunking for large log batches.
-func NewPipeline(model string, maxTokens int, client llm.ClientInterface, promptLoader *prompts.PromptLoader, cfg *config.Config) (*Pipeline, error) {
+func NewPipeline(model string, maxTokens int, client AnalysisClient, promptLoader *prompts.PromptLoader, cfg *config.Config) (*Pipeline, error) {
 	return NewPipelineWithConfig(model, maxTokens, client, promptLoader, "", cfg)
 }
 
 // NewPipelineWithConfig creates a new processing pipeline with custom ignore directory.
 // Use this when you need to specify a non-default location for container-specific ignore patterns.
-func NewPipelineWithConfig(model string, maxTokens int, client llm.ClientInterface, promptLoader *prompts.PromptLoader, ignoreDir string, cfg *config.Config) (*Pipeline, error) {
+func NewPipelineWithConfig(model string, maxTokens int, client AnalysisClient, promptLoader *prompts.PromptLoader, ignoreDir string, cfg *config.Config) (*Pipeline, error) {
 	tokenizer, err := NewTokenizer(model)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tokenizer for model %s: %w", model, err)
