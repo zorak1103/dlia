@@ -4,7 +4,8 @@ FROM alpine:3.24
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -g 1000 dlia \
     && adduser -D -u 1000 -G dlia dlia
-COPY dlia /usr/local/bin/dlia
+ARG TARGETPLATFORM
+COPY $TARGETPLATFORM/dlia /usr/local/bin/dlia
 RUN mkdir -p /data/reports /data/knowledge_base/services /data/logs/llm /data/config \
     && chown -R dlia:dlia /data
 WORKDIR /data
