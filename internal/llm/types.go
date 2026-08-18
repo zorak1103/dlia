@@ -1,14 +1,5 @@
 package llm
 
-import "context"
-
-// ClientInterface defines the interface for LLM client operations
-type ClientInterface interface {
-	Analyze(ctx context.Context, containerName, systemPrompt, userPrompt string) (string, *TokenUsage, error)
-	SummarizeChunk(ctx context.Context, containerName, systemPrompt, chunkPrompt string) (string, error)
-	ChatCompletion(ctx context.Context, messages []ChatMessage, temperature float64, maxTokens int) (*ChatResponse, error)
-}
-
 // ChatMessage represents a single message in a conversation
 type ChatMessage struct {
 	Role    string `json:"role"`    // system, user, assistant

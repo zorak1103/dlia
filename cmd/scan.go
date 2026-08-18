@@ -305,11 +305,8 @@ func determineLogStartTime(st *state.State, containerID string, scanCfg *scanCon
 func displayLogsPreview(logs []docker.LogEntry, scanCfg *scanConfig) {
 	if scanCfg.verbose && len(logs) > 0 {
 		fmt.Printf("        \n")
-		displayCount := len(logs)
-		if displayCount > 10 {
-			displayCount = 10
-		}
-		for j := 0; j < displayCount; j++ {
+		displayCount := min(len(logs), 10)
+		for j := range displayCount {
 			entry := logs[j]
 			fmt.Printf("        [%s] %s\n", entry.Timestamp, entry.Message)
 		}

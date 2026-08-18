@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -342,6 +343,37 @@ func TestClient_RetryLogic(t *testing.T) {
 	}
 }
 
+func TestClient_RetryLogic_ContextCanceledDuringBackoff(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Always fail so the retry loop enters its backoff sleep (1s for the first retry).
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"error": "service unavailable"}`)) // nolint:errcheck,gosec
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-key", "test-model")
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, _, err := client.Analyze(ctx, "", "system", "user")
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("Expected error when context is canceled during retry backoff")
+	}
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Expected error to wrap context.DeadlineExceeded, got: %v", err)
+	}
+
+	// The first backoff sleep is 1s; canceling should abort it immediately
+	// instead of waiting it out.
+	if elapsed >= 1*time.Second {
+		t.Errorf("Expected retry to abort promptly on context cancellation, took %v", elapsed)
+	}
+}
+
 func TestClient_MaxRetriesExceeded(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -414,7 +446,7 @@ func TestClient_InvalidJSON(t *testing.T) {
 		t.Error("Expected JSON parsing error")
 	}
 
-	if !contains(err.Error(), "failed to parse response") {
+	if !strings.Contains(err.Error(), "failed to parse response") {
 		t.Errorf("Expected JSON parsing error, got: %v", err)
 	}
 }
@@ -515,15 +547,3 @@ func TestClient_RequestSerialization(t *testing.T) {
 }
 
 // Helper function to check if string contains substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-			func() bool {
-				for i := 1; i <= len(s)-len(substr); i++ {
-					if s[i:i+len(substr)] == substr {
-						return true
-					}
-				}
-				return false
-			}())))
-}
