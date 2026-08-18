@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/pathologize"
+
 	"github.com/zorak1103/dlia/internal/chunking"
 	"github.com/zorak1103/dlia/internal/config"
 	"github.com/zorak1103/dlia/internal/sanitize"
@@ -24,7 +26,7 @@ func UpdateServiceKB(containerName string, analysis *chunking.AnalyzeResult, cfg
 		return fmt.Errorf("failed to create KB services directory: %w", err)
 	}
 
-	filePath := filepath.Clean(filepath.Join(kbDir, sanitize.Name(containerName)+".md"))
+	filePath := pathologize.Join(kbDir, sanitize.Name(containerName)+".md")
 
 	// Determine status based on analysis content (simple heuristic)
 	status := statusHealthy

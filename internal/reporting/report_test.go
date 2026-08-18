@@ -245,6 +245,28 @@ func TestSaveReport_DirectoryCreation(t *testing.T) {
 	}
 }
 
+func TestSaveReport_DefusesReservedContainerName(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	cfg := &config.Config{
+		Output: config.OutputConfig{
+			ReportsDir: tmpDir,
+		},
+	}
+
+	filePath, err := SaveReport("con", "content", cfg)
+	if err != nil {
+		t.Fatalf("SaveReport() error = %v", err)
+	}
+
+	expectedDir := filepath.Join(tmpDir, "CON_")
+	if !strings.HasPrefix(filePath, expectedDir) {
+		t.Errorf("SaveReport() unexpected directory structure\nGot: %s\nExpected prefix: %s", filePath, expectedDir)
+	}
+}
+
 func TestSaveReport_FilePermissions(t *testing.T) {
 	t.Parallel()
 
@@ -368,7 +390,7 @@ func TestSanitizeName(t *testing.T) {
 		{
 			name:  "empty string",
 			input: "",
-			want:  "",
+			want:  "file",
 		},
 		{
 			name:  "only slashes",
