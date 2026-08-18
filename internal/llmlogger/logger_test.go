@@ -162,33 +162,32 @@ func TestLogInteraction(t *testing.T) {
 	})
 }
 
-func TestSanitizeFilename(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"simple", "simple"},
-		{"with/slash", "with_slash"},
-		{"with\\backslash", "with_backslash"},
-		{"with:colon", "with_colon"},
-		{"with*asterisk", "with_asterisk"},
-		{"with?question", "with_question"},
-		{"with\"quote", "with_quote"},
-		{"with<less", "with_less"},
-		{"with>greater", "with_greater"},
-		{"with|pipe", "with_pipe"},
-		{"multiple/invalid\\chars", "multiple_invalid_chars"},
-		{"already_valid_name", "already_valid_name"},
-	}
+func TestLogInteraction_SanitizesContainerDirName(t *testing.T) {
+	t.Run("flattens slashes in container name to a single directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		logger := NewLogger(tmpDir, true)
 
-	for _, tc := range tests {
-		t.Run(tc.input, func(t *testing.T) {
-			result := sanitizeFilename(tc.input)
-			if result != tc.expected {
-				t.Errorf("sanitizeFilename(%q) = %q, want %q", tc.input, result, tc.expected)
-			}
-		})
-	}
+		if err := logger.LogInteraction("my/container", "input", nil, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, err := os.Stat(filepath.Join(tmpDir, "my_container")); err != nil {
+			t.Errorf("expected sanitized container directory 'my_container': %v", err)
+		}
+	})
+
+	t.Run("defuses Windows-reserved container names", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		logger := NewLogger(tmpDir, true)
+
+		if err := logger.LogInteraction("con", "input", nil, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if _, err := os.Stat(filepath.Join(tmpDir, "CON_")); err != nil {
+			t.Errorf("expected defused container directory 'CON_': %v", err)
+		}
+	})
 }
 
 func TestFormatMarkdown(t *testing.T) {

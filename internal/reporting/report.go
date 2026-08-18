@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/pathologize"
+
 	"github.com/zorak1103/dlia/internal/chunking"
 	"github.com/zorak1103/dlia/internal/config"
 	"github.com/zorak1103/dlia/internal/docker"
@@ -72,7 +74,7 @@ func GenerateScanReport(containerName string, analysis *chunking.AnalyzeResult, 
 // SaveReport writes a report to the container's directory and returns the file path.
 func SaveReport(containerName, content string, cfg *config.Config) (string, error) {
 	// Create container directory inside reports dir
-	containerDir := filepath.Join(cfg.Output.ReportsDir, sanitize.Name(containerName))
+	containerDir := pathologize.Join(cfg.Output.ReportsDir, sanitize.Name(containerName))
 	if err := os.MkdirAll(containerDir, 0o750); err != nil {
 		return "", fmt.Errorf("failed to create report directory: %w", err)
 	}

@@ -38,7 +38,7 @@ func TestSanitizeName(t *testing.T) {
 		{
 			name:     "empty string",
 			input:    "",
-			expected: "",
+			expected: "file",
 		},
 	}
 

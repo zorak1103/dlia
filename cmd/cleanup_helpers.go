@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/spf13/pathologize"
+
 	"github.com/zorak1103/dlia/internal/config"
 	"github.com/zorak1103/dlia/internal/docker"
 	"github.com/zorak1103/dlia/internal/sanitize"
@@ -364,7 +366,7 @@ func deleteKnowledgeBase(containerName string, cfg *config.Config) error {
 	}
 
 	sanitized := sanitize.Name(containerName)
-	kbFile := filepath.Join(cfg.Output.KnowledgeBaseDir, "services", sanitized+".md")
+	kbFile := pathologize.Join(cfg.Output.KnowledgeBaseDir, "services", sanitized+".md")
 
 	// Check if file exists
 	if _, err := os.Stat(kbFile); os.IsNotExist(err) {
@@ -390,7 +392,7 @@ func deleteReportsDir(containerName string, cfg *config.Config) error {
 	}
 
 	sanitized := sanitize.Name(containerName)
-	reportsDir := filepath.Join(cfg.Output.ReportsDir, sanitized)
+	reportsDir := pathologize.Join(cfg.Output.ReportsDir, sanitized)
 
 	// Check if directory exists
 	if _, err := os.Stat(reportsDir); os.IsNotExist(err) {
@@ -421,7 +423,7 @@ func deleteLLMLogsDir(containerName string, cfg *config.Config) error {
 	}
 
 	sanitized := sanitize.Name(containerName)
-	llmLogsDir := filepath.Join(cfg.Output.LLMLogDir, sanitized)
+	llmLogsDir := pathologize.Join(cfg.Output.LLMLogDir, sanitized)
 
 	// Check if directory exists
 	if _, err := os.Stat(llmLogsDir); os.IsNotExist(err) {

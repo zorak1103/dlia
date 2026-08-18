@@ -375,7 +375,7 @@ func TestSanitizeName(t *testing.T) {
 		{
 			name:  "empty string",
 			input: "",
-			want:  "",
+			want:  "file",
 		},
 	}
 
@@ -421,6 +421,31 @@ func TestUpdateServiceKB_CreateDirectory(t *testing.T) {
 	filePath := filepath.Join(servicesDir, "test.md")
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		t.Error("KB file should be created")
+	}
+}
+
+func TestUpdateServiceKB_DefusesReservedContainerName(t *testing.T) {
+	tmpDir := t.TempDir()
+	kbDir := filepath.Join(tmpDir, "kb")
+
+	cfg := &config.Config{
+		Output: config.OutputConfig{
+			KnowledgeBaseDir:       kbDir,
+			KnowledgeRetentionDays: 30,
+		},
+	}
+
+	analysis := &chunking.AnalyzeResult{
+		Analysis: "Test analysis.",
+	}
+
+	if err := UpdateServiceKB("con", analysis, cfg); err != nil {
+		t.Fatalf("UpdateServiceKB() error = %v", err)
+	}
+
+	filePath := filepath.Join(kbDir, "services", "CON_.md")
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		t.Errorf("expected defused KB file %s to exist", filePath)
 	}
 }
 

@@ -9,6 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/spf13/pathologize"
+
+	"github.com/zorak1103/dlia/internal/sanitize"
 )
 
 // Logger handles logging of LLM interactions to Markdown files.
@@ -40,7 +44,7 @@ func (l *Logger) LogInteraction(containerName, originalInput string, request, re
 	}
 
 	// Create container-specific directory
-	containerDir := filepath.Join(l.baseDir, sanitizeFilename(containerName))
+	containerDir := pathologize.Join(l.baseDir, sanitize.Name(containerName))
 	if err := os.MkdirAll(containerDir, 0o750); err != nil {
 		return fmt.Errorf("failed to create log directory %s: %w", containerDir, err)
 	}
@@ -98,17 +102,3 @@ func formatMarkdown(containerName string, timestamp time.Time, originalInput str
 }
 
 // sanitizeFilename removes or replaces characters that are invalid in filenames.
-func sanitizeFilename(name string) string {
-	// Replace common invalid characters with underscores
-	invalid := []rune{'/', '\\', ':', '*', '?', '"', '<', '>', '|'}
-	result := []rune(name)
-	for i, r := range result {
-		for _, inv := range invalid {
-			if r == inv {
-				result[i] = '_'
-				break
-			}
-		}
-	}
-	return string(result)
-}
