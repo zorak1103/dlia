@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/zorak1103/dlia/internal/sanitize"
 )
 
 // DefaultIgnoreDir is the default directory for ignore instruction files
@@ -19,8 +20,9 @@ func GetIgnoreInstructions(containerName, ignoreDir string) (string, error) {
 		ignoreDir = DefaultIgnoreDir
 	}
 
-	// Sanitize container name for file path
-	safeName := strings.ReplaceAll(containerName, "/", "_")
+	// Sanitize container name for file path (flattens "/" and defuses
+	// Windows-reserved device names via pathologize).
+	safeName := sanitize.Name(containerName)
 
 	path := filepath.Join(ignoreDir, safeName+".md")
 

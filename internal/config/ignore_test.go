@@ -109,6 +109,31 @@ func TestGetIgnoreInstructions_MultipleSlashes(t *testing.T) {
 	assert.Equal(t, ignoreContent, instructions)
 }
 
+func TestGetIgnoreInstructions_WindowsReservedName(t *testing.T) {
+	// Container names like "con" are valid in Docker but reserved device names
+	// on Windows; sanitize.Name (pathologize.Clean) must defuse them.
+	tmpDir := t.TempDir()
+	ignoreDir := filepath.Join(tmpDir, "config", "ignore")
+	err := os.MkdirAll(ignoreDir, 0750)
+	require.NoError(t, err)
+
+	ignoreContent := "Instructions for a container with a reserved device name"
+	err = os.WriteFile(filepath.Join(ignoreDir, "CON_.md"), []byte(ignoreContent), 0600)
+	require.NoError(t, err)
+
+	originalWd, err := os.Getwd()
+	require.NoError(t, err)
+	err = os.Chdir(tmpDir)
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(originalWd)
+	}()
+
+	instructions, err := GetIgnoreInstructions("con", ignoreDir)
+	assert.NoError(t, err)
+	assert.Equal(t, ignoreContent, instructions)
+}
+
 func TestGetIgnoreInstructions_EmptyFile(t *testing.T) {
 	// Create temp directory structure
 	tmpDir := t.TempDir()
