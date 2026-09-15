@@ -1,6 +1,6 @@
 module github.com/zorak1103/dlia
 
-go 1.26.2
+go 1.27.1
 
 require (
 	github.com/containrrr/shoutrrr v0.8.0
@@ -56,6 +56,5 @@ require (
 	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )
