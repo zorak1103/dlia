@@ -50,3 +50,5 @@ config.yaml
 .claude/
 CLAUDE.md
 
+.devcontainer/.personal
+.pi/
