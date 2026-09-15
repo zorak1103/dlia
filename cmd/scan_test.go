@@ -356,15 +356,15 @@ func TestScanCmd_ErrorHandling(t *testing.T) {
 			name: "LLM analysis error",
 			setupMocks: func() (*MockDockerClient, *MockLLMClient) {
 				return &MockDockerClient{
-						containers: []docker.Container{
-							{ID: "test", Name: "test", State: "running"},
-						},
-						logs: map[string][]docker.LogEntry{
-							"test": {{Timestamp: "2023-01-01T10:00:00Z", Stream: "stdout", Message: "test"}},
-						},
-					}, &MockLLMClient{
-						analyzeError: &llm.APIError{Message: "API Error", Type: "api_error", Code: "rate_limit"},
-					}
+					containers: []docker.Container{
+						{ID: "test", Name: "test", State: "running"},
+					},
+					logs: map[string][]docker.LogEntry{
+						"test": {{Timestamp: "2023-01-01T10:00:00Z", Stream: "stdout", Message: "test"}},
+					},
+				}, &MockLLMClient{
+					analyzeError: &llm.APIError{Message: "API Error", Type: "api_error", Code: "rate_limit"},
+				}
 			},
 			expectErr: true,
 		},
