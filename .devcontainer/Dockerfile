@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/go:1.27-bookworm
+FROM mcr.microsoft.com/devcontainers/go:2.3-bookworm
 
 # A named volume whose target path does not exist in the image is created root-owned,
 # and no-new-privileges leaves no sudo to repair it afterwards. Every volume mount point
