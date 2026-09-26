@@ -64,6 +64,26 @@
       "depNameTemplate": "golang.org/x/vuln"
     },
     {
+      "description": "Update gremlins installed via go install",
+      "customType": "regex",
+      "managerFilePatterns": ["/Taskfile\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=go depName=github.com/go-gremlins/gremlins\\n.*gremlins/cmd/gremlins@(?<currentValue>[^\\s\"]+)"
+      ],
+      "datasourceTemplate": "go",
+      "depNameTemplate": "github.com/go-gremlins/gremlins"
+    },
+    {
+      "description": "Update gremlins docker image used by task gremlins",
+      "customType": "regex",
+      "managerFilePatterns": ["/Taskfile\\.yml$/"],
+      "matchStrings": [
+        "# renovate: datasource=docker depName=gogremlins/gremlins\\n.*gogremlins/gremlins:(?<currentValue>[^\\s\"]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "gogremlins/gremlins"
+    },
+    {
       "description": "Update TruffleHog action SHA pin",
       "customType": "regex",
       "managerFilePatterns": ["/\\.github/workflows/.*\\.ya?ml$/"],
