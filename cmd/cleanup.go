@@ -1,4 +1,3 @@
-// coverage-exempt: Cobra UI command wiring Docker I/O — covered by integration tests
 package cmd
 
 import (
@@ -9,7 +8,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	"github.com/zorak1103/dlia/internal/docker"
 	"github.com/zorak1103/dlia/internal/state"
 )
 
@@ -66,7 +64,7 @@ contain data for each obsolete container.`,
 
 		// Initialize Docker client
 		ctx := context.Background()
-		dockerClient, err := docker.NewClient(cfg.Docker.SocketPath)
+		dockerClient, err := newDockerClient(cfg.Docker.SocketPath)
 		if err != nil {
 			return fmt.Errorf("failed to create Docker client: %w", err)
 		}
@@ -165,7 +163,7 @@ Use --dry-run to preview without deleting, or --force to skip confirmation.`,
 
 		// Initialize Docker client
 		ctx := context.Background()
-		dockerClient, err := docker.NewClient(cfg.Docker.SocketPath)
+		dockerClient, err := newDockerClient(cfg.Docker.SocketPath)
 		if err != nil {
 			return fmt.Errorf("failed to create Docker client: %w", err)
 		}

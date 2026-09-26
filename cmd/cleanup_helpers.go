@@ -1,4 +1,3 @@
-// coverage-exempt: Docker-dependent helpers; pure sub-functions covered in cleanup_helpers_test.go
 package cmd
 
 import (
@@ -140,6 +139,9 @@ func scanLLMLogs(cfg *config.Config) ([]string, error) {
 
 	return containerNames, nil
 }
+
+// newDockerClient is a seam for tests to stub Docker connections.
+var newDockerClient = docker.NewClient
 
 // ObsoleteContainer represents a container that exists in storage but not in Docker
 type ObsoleteContainer struct {
