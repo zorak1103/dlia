@@ -97,6 +97,20 @@ tasks:
       - go vet ./...
 
   # ============================================================================
+  # MUTATION TESTING
+  # ============================================================================
+  gremlins:
+    desc: Run mutation testing with gremlins unleash (CI installs it; locally run `task gremlins:install` first)
+    cmds:
+      - gremlins unleash
+
+  gremlins:install:
+    desc: Install gremlins locally (tracked by Renovate)
+    cmds:
+      # renovate: datasource=go depName=github.com/go-gremlins/gremlins
+      - go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+
+  # ============================================================================
   # SECURITY
   # ============================================================================
   vulncheck:
