@@ -4,7 +4,6 @@
 [![License](https://img.shields.io/github/license/zorak1103/dlia)](LICENSE)
 [![CI](https://github.com/zorak1103/dlia/actions/workflows/ci.yml/badge.svg)](https://github.com/zorak1103/dlia/actions/workflows/ci.yml)
 [![Release](https://github.com/zorak1103/dlia/actions/workflows/release.yml/badge.svg)](https://github.com/zorak1103/dlia/actions/workflows/release.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/zorak1103/dlia?style=flat)](https://goreportcard.com/report/github.com/zorak1103/dlia)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/zorak1103/dlia)](https://go.dev/)
 [![Go Reference](https://pkg.go.dev/badge/github.com/zorak1103/dlia.svg)](https://pkg.go.dev/github.com/zorak1103/dlia)
 [![Docker Image](https://img.shields.io/docker/v/zorak1103/dlia?label=docker)](https://hub.docker.com/r/zorak1103/dlia)

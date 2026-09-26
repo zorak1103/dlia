@@ -100,12 +100,13 @@ tasks:
   # MUTATION TESTING
   # ============================================================================
   gremlins:
-    desc: Run mutation testing with gremlins unleash (CI installs it; locally run `task gremlins:install` first)
+    desc: Run mutation testing with gremlins unleash (via Docker)
     cmds:
-      - gremlins unleash
+      # renovate: datasource=docker depName=gogremlins/gremlins
+      - docker run --rm -v "{{.TASKFILE_DIR}}:/app" -w /app -e GOTOOLCHAIN=auto gogremlins/gremlins:0.6.0 gremlins unleash .
 
   gremlins:install:
-    desc: Install gremlins locally (tracked by Renovate)
+    desc: Install the gremlins binary locally for native use (tracked by Renovate)
     cmds:
       # renovate: datasource=go depName=github.com/go-gremlins/gremlins
       - go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0

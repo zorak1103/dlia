@@ -47,7 +47,4 @@ config.yaml
 # Keep example configs
 !config.yaml.example
 !.env.example
-.claude/
-CLAUDE.md
-
-.pi/
+temp/
