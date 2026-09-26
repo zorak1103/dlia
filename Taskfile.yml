@@ -122,3 +122,12 @@ tasks:
     desc: Download all dependencies
     cmds:
       - go mod download
+
+  # ============================================================================
+  # SETUP
+  # ============================================================================
+  install-hooks:
+    desc: Install git hooks (run once after cloning)
+    cmds:
+      - git config core.hooksPath .githooks
+      - chmod +x .githooks/pre-commit .githooks/pre-push || true

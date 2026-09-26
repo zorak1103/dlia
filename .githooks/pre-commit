@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Auto-fix Go formatting on staged .go files so CI never sees unformatted code.
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+if [ -z "$staged" ]; then
+  exit 0
+fi
+
+gofmt -w $staged
+git add $staged
