@@ -8,24 +8,44 @@ DLIA (Docker Log Intelligence Agent) is an AI-powered Docker log monitoring agen
 
 ## Build Commands
 
+All common commands are defined in `Taskfile.yml` — prefer `task <name>` over raw tool invocations.
+
 ```bash
-# Install dependencies
-go mod download
-
 # Build the binary
-go build -o dlia.exe .
+task build
 
-# Run tests with race detection and coverage
-go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+# Run tests (set RACE=-race to enable race detection)
+task test
 
-# Run linter (uses golangci-lint with extensive config in .golangci.yml)
-golangci-lint run -v --timeout=5m
+# Run tests with per-file coverage enforcement (80% gate via scripts/check-coverage.sh)
+task test:coverage
 
-# Run a single test
+# Watch tests (requires gotestsum)
+task test:watch
+
+# Run the linter (uses golangci-lint with extensive config in .golangci.yml)
+task lint            # CI installs it; locally run `task lint:install` first
+
+# Format / check formatting
+task fmt
+task fmt:check
+
+# Static analysis and security
+task vet
+task vulncheck       # locally run `task vulncheck:install` first
+
+# Mutation testing (runs the official gremlins image via Docker, toolchain auto-selected)
+task gremlins        # native binary alternative: `task gremlins:install` first
+
+# Dependency management
+task tidy
+task deps:download
+
+# Install git hooks (run once after cloning)
+task install-hooks
+
+# Run a single test (no task equivalent)
 go test -v -run TestFunctionName ./path/to/package
-
-# Check for security vulnerabilities
-govulncheck ./...
 ```
 
 ## Architecture Overview
