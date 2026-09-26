@@ -81,7 +81,7 @@ cloud "LLM Provider" as llm_provider {
     }
     
     node "OpenRouter" as openrouter {
-        [Claude] as claude
+        [Gemini] as gemini
         [Mistral] as mistral
     }
     
