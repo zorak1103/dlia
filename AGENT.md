@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENT.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI coding agents when working with code in this repository.
 
 ## Project Overview
 
@@ -123,14 +123,6 @@ go test -v -run TestFunctionName ./path/to/package
 - `--llmlog` flag on scan - Log LLM conversations to `logs/llm/` for prompt debugging (`internal/llmlogger/`)
 - `--filter-stats` flag on scan - Show regexp filter statistics
 - `internal/sanitize/` package - Utility for filesystem-safe container names
-
-## Claude Code Hooks
-
-This project uses Claude Code Hooks (`.claude/settings.json`) for automatic formatting:
-
-- **PostToolUse Hook**: After every `Edit` or `Write` operation on `.go` files, `go fmt ./...` is automatically executed
-- Timeout: 60 seconds
-- The hook runs in the background and does not block the workflow
 
 ## Release Process
 
