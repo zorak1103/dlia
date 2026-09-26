@@ -120,6 +120,17 @@ func TestScanStateFile(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, ids)
 	})
+
+	t.Run("state file path is a directory", func(t *testing.T) {
+		cfg := &config.Config{
+			Output: config.OutputConfig{
+				StateFile: t.TempDir(), // a directory, not a file
+			},
+		}
+		_, err := scanStateFile(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to load state file")
+	})
 }
 
 func TestScanKnowledgeBase(t *testing.T) {
@@ -181,6 +192,20 @@ func TestScanKnowledgeBase(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, names)
 	})
+
+	t.Run("services path is a file, not a dir", func(t *testing.T) {
+		servicesFile := filepath.Join(t.TempDir(), "services")
+		require.NoError(t, os.WriteFile(servicesFile, []byte("x"), 0600))
+
+		cfg := &config.Config{
+			Output: config.OutputConfig{
+				KnowledgeBaseDir: filepath.Dir(servicesFile),
+			},
+		}
+		_, err := scanKnowledgeBase(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to read knowledge base directory")
+	})
 }
 
 func TestScanReports(t *testing.T) {
@@ -238,18 +263,37 @@ func TestScanReports(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, names)
 	})
+
+	t.Run("reports path is a file, not a dir", func(t *testing.T) {
+		reportsFile := filepath.Join(t.TempDir(), "reports")
+		require.NoError(t, os.WriteFile(reportsFile, []byte("x"), 0600))
+
+		cfg := &config.Config{
+			Output: config.OutputConfig{
+				ReportsDir: reportsFile,
+			},
+		}
+		_, err := scanReports(cfg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to read reports directory")
+	})
 }
 
 // testMockDockerClient is a simple mock for cleanup tests
 type testMockDockerClient struct {
 	containers []docker.Container
+	pingErr    error
+	listErr    error
 }
 
 func (m *testMockDockerClient) Ping(_ context.Context) error {
-	return nil
+	return m.pingErr
 }
 
 func (m *testMockDockerClient) ListContainers(_ context.Context, _ docker.FilterOptions) ([]docker.Container, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
 	return m.containers, nil
 }
 
