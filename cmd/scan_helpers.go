@@ -26,10 +26,6 @@ func validateAndFilterContainers(ctx context.Context, dockerClient docker.Client
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
-	if len(containers) == 0 {
-		return containers, nil
-	}
-
 	return containers, nil
 }
 
@@ -78,10 +74,8 @@ func displayAnalysisResults(result *chunking.AnalyzeResult, scanCfg *scanConfig)
 	}
 
 	if scanCfg.filterStats && result.FilterStats.LinesTotal > 0 {
-		percentage := 0.0
-		if result.FilterStats.LinesTotal > 0 {
-			percentage = float64(result.FilterStats.LinesFiltered) / float64(result.FilterStats.LinesTotal) * 100
-		}
+		// LinesTotal > 0 is guaranteed by the guard above, so the division is safe.
+		percentage := float64(result.FilterStats.LinesFiltered) / float64(result.FilterStats.LinesTotal) * 100
 		fmt.Printf("        🔍 Regexp Filter: Filtered %d/%d log lines (%.1f%%)\n",
 			result.FilterStats.LinesFiltered,
 			result.FilterStats.LinesTotal,

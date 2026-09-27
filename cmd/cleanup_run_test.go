@@ -242,6 +242,8 @@ func TestCleanupExecuteCmd_DryRun(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Contains(t, out.String(), "DRY RUN - No changes made")
+	// The preview bullet shows the container ID and, when named, the name.
+	assert.Contains(t, out.String(), "• dead1 (old-app)")
 	// Nothing deleted
 	_, statErr := os.Stat(kbFile)
 	assert.NoError(t, statErr, "dry run must not delete files")
@@ -249,13 +251,15 @@ func TestCleanupExecuteCmd_DryRun(t *testing.T) {
 
 func TestCleanupExecuteCmd_PromptVariants(t *testing.T) {
 	tests := []struct {
-		name     string
-		in       string
-		setIn    bool
-		expected string
+		name        string
+		in          string
+		setIn       bool
+		expected    string
+		wantDeleted bool
 	}{
-		{name: "declined", in: "n\n", setIn: true, expected: "Cleanup canceled"},
-		{name: "stdin closed (scan error counts as no)", setIn: false, expected: "Cleanup canceled"},
+		{name: "declined", in: "n\n", setIn: true, expected: "Cleanup canceled", wantDeleted: false},
+		{name: "accepted", in: "y\n", setIn: true, expected: "Cleanup complete", wantDeleted: true},
+		{name: "stdin closed (scan error counts as no)", setIn: false, expected: "Cleanup canceled", wantDeleted: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -281,9 +285,34 @@ func TestCleanupExecuteCmd_PromptVariants(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, out.String(), tt.expected)
 			_, statErr := os.Stat(kbFile)
-			assert.NoError(t, statErr, "declined cleanup must not delete files")
+			if tt.wantDeleted {
+				assert.True(t, os.IsNotExist(statErr), "accepted cleanup must delete files")
+			} else {
+				assert.NoError(t, statErr, "declined cleanup must not delete files")
+			}
 		})
 	}
+}
+
+func TestCleanupExecuteCmd_PreviewUnnamedContainer(t *testing.T) {
+	out := setupCleanupRunTest(t)
+
+	// Obsolete container with no name in state: the preview bullet must not
+	// render an empty name suffix.
+	require.NoError(t, os.WriteFile(cfg.Output.StateFile, []byte(`{
+		"containers": {"dead1": {"name": ""}},
+		"last_updated": "2024-01-01T00:00:00Z"
+	}`), 0600))
+
+	cleanupDryRun = true
+	withDockerMock(t, &testMockDockerClient{containers: []docker.Container{}}, nil)
+
+	err := cleanupExecuteCmd.RunE(cleanupExecuteCmd, []string{})
+
+	require.NoError(t, err)
+	output := out.String()
+	assert.Contains(t, output, "• dead1")
+	assert.NotContains(t, output, " ()")
 }
 
 func TestCleanupExecuteCmd_ForceSuccess(t *testing.T) {

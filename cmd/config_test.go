@@ -306,6 +306,38 @@ func TestDisplayPromptPaths_WithDefaults(t *testing.T) {
 	displayPromptPaths(cfg)
 }
 
+// TestDisplayPromptPaths_CapturedOutput pins the EXTERNAL/INTERNAL markers of
+// displayPromptPaths output.
+func TestDisplayPromptPaths_CapturedOutput(t *testing.T) {
+	t.Run("configured paths render as EXTERNAL", func(t *testing.T) {
+		cfg := &config.Config{
+			Prompts: config.PromptsConfig{
+				SystemPrompt:   "/custom/system.md",
+				AnalysisPrompt: "",
+			},
+		}
+
+		read := captureStdout(t)
+		displayPromptPaths(cfg)
+		out := read()
+
+		assert.Contains(t, out, "System Prompt:")
+		assert.Contains(t, out, "[EXTERNAL] /custom/system.md")
+		assert.Contains(t, out, "[INTERNAL DEFAULT]") // Analysis Prompt has no custom path
+	})
+
+	t.Run("all defaults render as INTERNAL", func(t *testing.T) {
+		cfg := &config.Config{Prompts: config.PromptsConfig{}}
+
+		read := captureStdout(t)
+		displayPromptPaths(cfg)
+		out := read()
+
+		assert.NotContains(t, out, "[EXTERNAL]")
+		assert.Contains(t, out, "[INTERNAL DEFAULT]")
+	})
+}
+
 func TestDisplayPromptPaths_WithCustomPaths(t *testing.T) {
 	t.Parallel()
 
@@ -413,6 +445,8 @@ func TestValidateConfigOrExit_MissingDirectories(t *testing.T) {
 	assert.Contains(t, err.Error(), "required directories are missing")
 	assert.Contains(t, err.Error(), "Reports directory")
 	assert.Contains(t, err.Error(), "Knowledge base directory")
+	assert.Contains(t, err.Error(), "State file directory")
+	assert.Contains(t, err.Error(), filepath.Join(tmpDir, "state"))
 	assert.Contains(t, err.Error(), "LLM log directory")
 	assert.Contains(t, err.Error(), "Run 'dlia init'")
 }
