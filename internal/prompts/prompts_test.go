@@ -544,6 +544,163 @@ func TestPromptLoader_AllPromptsWithExternalFiles(t *testing.T) {
 	})
 }
 
+func TestPromptLoader_ChunkSummaryTemplateErrors(t *testing.T) {
+	t.Run("invalid syntax fails at parse time", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		templatePath := filepath.Join(tmpDir, "chunk_parse_error.md")
+		err := os.WriteFile(templatePath, []byte("{{.Broken"), 0600)
+		if err != nil {
+			t.Fatalf("Failed to write invalid template: %v", err)
+		}
+
+		cfg := &config.Config{
+			Prompts: config.PromptsConfig{
+				ChunkSummaryPrompt: templatePath,
+			},
+		}
+		loader := NewPromptLoader(cfg)
+
+		_, err = loader.ChunkSummaryPrompt("test", 1, 2, "logs")
+		if err == nil {
+			t.Error("Expected error for invalid chunk summary template")
+		}
+		if !strings.Contains(err.Error(), "failed to parse chunk summary template") {
+			t.Errorf("Expected parse error, got: %v", err)
+		}
+	})
+
+	t.Run("unknown key fails at execution time", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		templatePath := filepath.Join(tmpDir, "chunk_exec_error.md")
+		// missingkey=error makes unknown keys fail during execution
+		err := os.WriteFile(templatePath, []byte("{{.UndefinedField}}"), 0600)
+		if err != nil {
+			t.Fatalf("Failed to write template: %v", err)
+		}
+
+		cfg := &config.Config{
+			Prompts: config.PromptsConfig{
+				ChunkSummaryPrompt: templatePath,
+			},
+		}
+		loader := NewPromptLoader(cfg)
+
+		_, err = loader.ChunkSummaryPrompt("test", 1, 2, "logs")
+		if err == nil {
+			t.Error("Expected error for chunk summary template execution failure")
+		}
+		if !strings.Contains(err.Error(), "failed to execute chunk summary template") {
+			t.Errorf("Expected execution error, got: %v", err)
+		}
+	})
+}
+
+func TestPromptLoader_SynthesisTemplateErrors(t *testing.T) {
+	t.Run("invalid syntax fails at parse time", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		templatePath := filepath.Join(tmpDir, "synthesis_parse_error.md")
+		err := os.WriteFile(templatePath, []byte("{{.Broken"), 0600)
+		if err != nil {
+			t.Fatalf("Failed to write invalid template: %v", err)
+		}
+
+		cfg := &config.Config{
+			Prompts: config.PromptsConfig{
+				SynthesisPrompt: templatePath,
+			},
+		}
+		loader := NewPromptLoader(cfg)
+
+		_, err = loader.SynthesisPrompt("test", []string{"summary one"})
+		if err == nil {
+			t.Error("Expected error for invalid synthesis template")
+		}
+		if !strings.Contains(err.Error(), "failed to parse synthesis template") {
+			t.Errorf("Expected parse error, got: %v", err)
+		}
+	})
+
+	t.Run("unknown key fails at execution time", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		templatePath := filepath.Join(tmpDir, "synthesis_exec_error.md")
+		err := os.WriteFile(templatePath, []byte("{{.UndefinedField}}"), 0600)
+		if err != nil {
+			t.Fatalf("Failed to write template: %v", err)
+		}
+
+		cfg := &config.Config{
+			Prompts: config.PromptsConfig{
+				SynthesisPrompt: templatePath,
+			},
+		}
+		loader := NewPromptLoader(cfg)
+
+		_, err = loader.SynthesisPrompt("test", []string{"summary one"})
+		if err == nil {
+			t.Error("Expected error for synthesis template execution failure")
+		}
+		if !strings.Contains(err.Error(), "failed to execute synthesis template") {
+			t.Errorf("Expected execution error, got: %v", err)
+		}
+	})
+}
+
+func TestPromptLoader_ExecutiveSummaryTemplateErrors(t *testing.T) {
+	t.Run("invalid syntax fails at parse time", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		templatePath := filepath.Join(tmpDir, "exec_parse_error.md")
+		err := os.WriteFile(templatePath, []byte("{{.Broken"), 0600)
+		if err != nil {
+			t.Fatalf("Failed to write invalid template: %v", err)
+		}
+
+		cfg := &config.Config{
+			Prompts: config.PromptsConfig{
+				ExecutiveSummaryPrompt: templatePath,
+			},
+		}
+		loader := NewPromptLoader(cfg)
+
+		_, err = loader.ExecutiveSummaryPrompt(map[string]string{"c1": "a1"})
+		if err == nil {
+			t.Error("Expected error for invalid executive summary template")
+		}
+		if !strings.Contains(err.Error(), "failed to parse executive summary template") {
+			t.Errorf("Expected parse error, got: %v", err)
+		}
+	})
+
+	t.Run("unknown key fails at execution time", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		templatePath := filepath.Join(tmpDir, "exec_exec_error.md")
+		err := os.WriteFile(templatePath, []byte("{{.UndefinedField}}"), 0600)
+		if err != nil {
+			t.Fatalf("Failed to write template: %v", err)
+		}
+
+		cfg := &config.Config{
+			Prompts: config.PromptsConfig{
+				ExecutiveSummaryPrompt: templatePath,
+			},
+		}
+		loader := NewPromptLoader(cfg)
+
+		_, err = loader.ExecutiveSummaryPrompt(map[string]string{"c1": "a1"})
+		if err == nil {
+			t.Error("Expected error for executive summary template execution failure")
+		}
+		if !strings.Contains(err.Error(), "failed to execute executive summary template") {
+			t.Errorf("Expected execution error, got: %v", err)
+		}
+	})
+}
+
 func BenchmarkPromptLoader_SystemPrompt(b *testing.B) {
 	cfg := &config.Config{}
 	loader := NewPromptLoader(cfg)
