@@ -7,9 +7,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/zorak1103/dlia/internal/llmlogger"
 )
 
 func TestNewClient(t *testing.T) {
@@ -544,6 +548,144 @@ func TestClient_RequestSerialization(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
+}
+
+// captureStdout redirects os.Stdout into a buffer; the returned func drains it.
+func captureStdout(t *testing.T) func() string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	return func() string {
+		os.Stdout = orig
+		w.Close() // nolint:errcheck
+		buf := &strings.Builder{}
+		_, _ = io.Copy(buf, r)
+		r.Close() // nolint:errcheck
+		return buf.String()
+	}
+}
+
+func newAnalyzeTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(ChatResponse{ // nolint:errcheck,gosec
+			Choices: []Choice{
+				{Message: ChatMessage{Role: "assistant", Content: "analysis result"}},
+			},
+			Usage: TokenUsage{PromptTokens: 10, CompletionTokens: 20, TotalTokens: 30},
+		})
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+// ponytail: covers the logger guard branches in Analyze (client.go:231) and
+// SummarizeChunk (client.go:264) — both the successful-log path and the
+// failed-log warning path — using stdout capture to pin the warning text.
+func TestAnalyze_LoggerGuards(t *testing.T) {
+	successResp := "analysis result"
+
+	t.Run("successful log write is silent", func(t *testing.T) {
+		server := newAnalyzeTestServer(t)
+		client := NewClient(server.URL, "test-key", "test-model")
+		client.SetLogger(llmlogger.NewLogger(t.TempDir(), true))
+
+		read := captureStdout(t)
+		content, usage, err := client.Analyze(context.Background(), "web-1", "system", "user")
+		out := read()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if content != successResp {
+			t.Errorf("Expected content %q, got %q", successResp, content)
+		}
+		if usage == nil {
+			t.Error("Expected usage to be non-nil")
+		}
+		if strings.Contains(out, "failed to log LLM interaction") {
+			t.Errorf("Did not expect log warning, got stdout: %q", out)
+		}
+	})
+
+	t.Run("failed log write prints warning but does not fail", func(t *testing.T) {
+		server := newAnalyzeTestServer(t)
+		// baseDir is a file, so MkdirAll inside the logger fails deterministically
+		blocker := filepath.Join(t.TempDir(), "blocker")
+		if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+			t.Fatalf("could not create blocker file: %v", err)
+		}
+		client := NewClient(server.URL, "test-key", "test-model")
+		client.SetLogger(llmlogger.NewLogger(blocker, true))
+
+		read := captureStdout(t)
+		content, _, err := client.Analyze(context.Background(), "web-1", "system", "user")
+		out := read()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if content != successResp {
+			t.Errorf("Expected content %q, got %q", successResp, content)
+		}
+		if !strings.Contains(out, "Warning: failed to log LLM interaction") {
+			t.Errorf("Expected log warning on stdout, got: %q", out)
+		}
+	})
+}
+
+func TestSummarizeChunk_LoggerGuards(t *testing.T) {
+	successResp := "analysis result"
+
+	t.Run("successful log write is silent", func(t *testing.T) {
+		server := newAnalyzeTestServer(t)
+		client := NewClient(server.URL, "test-key", "test-model")
+		client.SetLogger(llmlogger.NewLogger(t.TempDir(), true))
+
+		read := captureStdout(t)
+		content, err := client.SummarizeChunk(context.Background(), "web-1", "system", "chunk")
+		out := read()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if content != successResp {
+			t.Errorf("Expected content %q, got %q", successResp, content)
+		}
+		if strings.Contains(out, "failed to log LLM interaction") {
+			t.Errorf("Did not expect log warning, got stdout: %q", out)
+		}
+	})
+
+	t.Run("failed log write prints warning but does not fail", func(t *testing.T) {
+		server := newAnalyzeTestServer(t)
+		blocker := filepath.Join(t.TempDir(), "blocker")
+		if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+			t.Fatalf("could not create blocker file: %v", err)
+		}
+		client := NewClient(server.URL, "test-key", "test-model")
+		client.SetLogger(llmlogger.NewLogger(blocker, true))
+
+		read := captureStdout(t)
+		content, err := client.SummarizeChunk(context.Background(), "web-1", "system", "chunk")
+		out := read()
+
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if content != successResp {
+			t.Errorf("Expected content %q, got %q", successResp, content)
+		}
+		if !strings.Contains(out, "Warning: failed to log LLM interaction") {
+			t.Errorf("Expected log warning on stdout, got: %q", out)
+		}
+	})
 }
 
 // Helper function to check if string contains substring
