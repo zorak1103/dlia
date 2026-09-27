@@ -185,6 +185,7 @@ func TestStateListCmd_WithContainers(t *testing.T) {
 	}
 	st.UpdateContainer("container1", "test-container-1", time.Now(), "cursor1")
 	st.UpdateContainer("container2", "test-container-2", time.Now(), "cursor2")
+	st.UpdateContainer("container3", "no-cursor-app", time.Now(), "")
 	if err := st.Save(); err != nil {
 		t.Fatalf("Failed to save state: %v", err)
 	}
@@ -205,8 +206,22 @@ func TestStateListCmd_WithContainers(t *testing.T) {
 	if !strings.Contains(output, "test-container-2") {
 		t.Errorf("Expected container name in output, got: %s", output)
 	}
-	if !strings.Contains(output, "Total: 2 container(s)") {
+	if !strings.Contains(output, "Total: 3 container(s)") {
 		t.Errorf("Expected total count in output, got: %s", output)
+	}
+
+	// Row-level assertions: cursors render when set, dash when empty.
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "test-container-1") {
+			if !strings.Contains(line, "cursor1") {
+				t.Errorf("Expected cursor in row for container1, got: %q", line)
+			}
+		}
+		if strings.Contains(line, "no-cursor-app") {
+			if !strings.Contains(line, "-") {
+				t.Errorf("Expected dash placeholder for empty cursor, got: %q", line)
+			}
+		}
 	}
 }
 
@@ -270,6 +285,12 @@ func TestStateResetCmd_RequiresForce(t *testing.T) {
 	output := buf.String()
 	if !strings.Contains(output, "Aborted") {
 		t.Errorf("Expected abort message without --force, got: %s", output)
+	}
+	if !strings.Contains(output, "Resetting state for ALL containers") {
+		t.Errorf("Expected all-containers reset notice, got: %s", output)
+	}
+	if strings.Contains(output, "matching:") {
+		t.Errorf("Expected no filter notice without an argument, got: %s", output)
 	}
 
 	// Verify state file still exists
@@ -411,6 +432,9 @@ func TestStateResetCmd_WithFilter(t *testing.T) {
 	output := buf.String()
 	if !strings.Contains(output, "State reset complete") {
 		t.Errorf("Expected success message, got: %s", output)
+	}
+	if !strings.Contains(output, "Resetting state for containers matching: nginx.*") {
+		t.Errorf("Expected filter reset notice, got: %s", output)
 	}
 
 	// Reload state and verify only nginx was removed

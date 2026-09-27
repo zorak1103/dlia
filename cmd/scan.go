@@ -154,9 +154,12 @@ func displayVerboseHeader(cfg *config.Config, scanCfg *scanConfig, lookbackDurat
 	displayPromptConfiguration()
 }
 
+// getDefaultPromptLoader is a seam for tests to stub prompt loader lookup.
+var getDefaultPromptLoader = prompts.GetDefaultLoader
+
 func displayPromptConfiguration() {
 	fmt.Println("\n📝 Prompt Configuration:")
-	loader := prompts.GetDefaultLoader()
+	loader := getDefaultPromptLoader()
 	if loader == nil {
 		fmt.Println()
 		return

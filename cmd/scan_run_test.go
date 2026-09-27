@@ -139,11 +139,11 @@ func withScanLLMMock(t *testing.T, fake *fakeScanLLM) {
 	t.Cleanup(func() { newLLMClient = original })
 }
 
-// setVerbose overrides the global verbose flag for the test's duration.
-func setVerbose(t *testing.T, v bool) {
+// setVerbose enables verbose mode for the test's duration.
+func setVerbose(t *testing.T) {
 	t.Helper()
 	original := verbose
-	verbose = v
+	verbose = true
 	t.Cleanup(func() { verbose = original })
 }
 
@@ -267,7 +267,7 @@ func TestRunScan_NoContainers(t *testing.T) {
 func TestRunScan_HappyPath(t *testing.T) {
 	env := setupScanRunTest(t)
 	read := captureStdout(t)
-	setVerbose(t, true)
+	setVerbose(t)
 	withScanDockerMock(t, &MockDockerClient{
 		containers: []docker.Container{scanContainer()},
 		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
@@ -300,6 +300,7 @@ func TestRunScan_HappyPath(t *testing.T) {
 func TestRunScan_DryRun(t *testing.T) {
 	env := setupScanRunTest(t)
 	read := captureStdout(t)
+	setVerbose(t)
 	withScanDockerMock(t, &MockDockerClient{
 		containers: []docker.Container{scanContainer()},
 		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
@@ -315,6 +316,8 @@ func TestRunScan_DryRun(t *testing.T) {
 	assert.Contains(t, out, "DRY RUN MODE")
 	assert.Contains(t, out, "Would update state")
 	assert.Contains(t, out, "State: Not modified (dry-run)")
+	// Dry-run without lookback is state-tracking disabled, not lookback mode.
+	assert.NotContains(t, out, "Using lookback mode")
 
 	// Dry run must not touch state, reports or knowledge base.
 	_, statErr := os.Stat(env.stateFile)
@@ -327,7 +330,7 @@ func TestRunScan_DryRun(t *testing.T) {
 func TestRunScan_LookbackMode(t *testing.T) {
 	env := setupScanRunTest(t)
 	read := captureStdout(t)
-	setVerbose(t, true)
+	setVerbose(t)
 	withScanDockerMock(t, &MockDockerClient{
 		containers: []docker.Container{scanContainer()},
 		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
@@ -452,7 +455,7 @@ func TestRunScan_NotifierInitFails(t *testing.T) {
 func TestRunScan_UnparseableLogTimestamps(t *testing.T) {
 	env := setupScanRunTest(t)
 	read := captureStdout(t)
-	setVerbose(t, true)
+	setVerbose(t)
 	badLogs := []docker.LogEntry{
 		{Timestamp: "not-a-timestamp", Stream: "stdout", Message: "garbage time"},
 		{Timestamp: "also-bad", Stream: "stdout", Message: "more garbage"},

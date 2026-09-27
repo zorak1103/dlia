@@ -3,6 +3,9 @@ package cmd
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -285,6 +288,99 @@ func TestRootCmd_PersistentPreRunE_SkipConfigForInit(t *testing.T) {
 	err := rootCmd.PersistentPreRunE(mockCmd, []string{})
 	if err != nil {
 		t.Errorf("Expected no error for init command, got: %v", err)
+	}
+}
+
+// runPersistentPreRunWithConfigFile drives PersistentPreRunE with a given
+// config file path and restored globals, returning the post-run globals.
+func runPersistentPreRunWithConfigFile(t *testing.T, commandName, configPath string) (loadedCfg *config.Config, loadErr error) {
+	t.Helper()
+
+	originalCfg, originalCfgFile, originalVerbose, originalErr := cfg, cfgFile, verbose, errConfigLoad
+	t.Cleanup(func() {
+		cfg, cfgFile, verbose, errConfigLoad = originalCfg, originalCfgFile, originalVerbose, originalErr
+	})
+
+	cfg = nil
+	errConfigLoad = nil
+	cfgFile = configPath
+	verbose = false
+
+	err := rootCmd.PersistentPreRunE(&cobra.Command{Use: commandName}, []string{})
+	if err != nil {
+		t.Fatalf("Expected no error from PersistentPreRunE for %q, got: %v", commandName, err)
+	}
+
+	return cfg, GetConfigLoadError()
+}
+
+func writeBrokenConfigFile(t *testing.T) string {
+	t.Helper()
+
+	brokenConfig := filepath.Join(t.TempDir(), "broken.yaml")
+	err := os.WriteFile(brokenConfig, []byte("{{{ not yaml"), 0600)
+	if err != nil {
+		t.Fatalf("Failed to write broken config: %v", err)
+	}
+	return brokenConfig
+}
+
+func TestRootCmd_PersistentPreRunE_SkipNamesNeverLoadConfig(t *testing.T) {
+	brokenConfig := writeBrokenConfigFile(t)
+
+	// init/help/version must not attempt config loading: neither the config
+	// nor a stored load error may appear, even though the config file is broken.
+	for _, name := range []string{"init", "help", "version"} {
+		t.Run(name, func(t *testing.T) {
+			loadedCfg, loadErr := runPersistentPreRunWithConfigFile(t, name, brokenConfig)
+
+			if loadedCfg != nil {
+				t.Errorf("Expected config NOT to load for %q command", name)
+			}
+			if loadErr != nil {
+				t.Errorf("Expected no stored config-load error for %q command, got: %v", name, loadErr)
+			}
+		})
+	}
+}
+
+func TestRootCmd_PersistentPreRunE_LoadsConfigForOtherCommands(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Directories referenced by the config (validateConfigOrExit checks them
+	// separately; Load itself only validates values).
+	for _, dir := range []string{"reports", "kb", "state"} {
+		if err := os.MkdirAll(filepath.Join(tmpDir, dir), 0750); err != nil {
+			t.Fatalf("Failed to create dir: %v", err)
+		}
+	}
+
+	validConfig := filepath.Join(tmpDir, "config.yaml")
+	content := fmt.Sprintf("llm:\n  api_key: test-key\n  model: test-model\n  base_url: http://test\ndocker:\n  socket_path: unix:///var/run/docker.sock\noutput:\n  reports_dir: %s\n  knowledge_base_dir: %s\n  state_file: %s\n",
+		filepath.Join(tmpDir, "reports"), filepath.Join(tmpDir, "kb"), filepath.Join(tmpDir, "state", "state.json"))
+	if err := os.WriteFile(validConfig, []byte(content), 0600); err != nil {
+		t.Fatalf("Failed to write valid config: %v", err)
+	}
+
+	loadedCfg, loadErr := runPersistentPreRunWithConfigFile(t, "scan", validConfig)
+
+	if loadedCfg == nil {
+		t.Error("Expected config to load for a non-skip command")
+	}
+	if loadErr != nil {
+		t.Errorf("Expected no config-load error for a valid config, got: %v", loadErr)
+	}
+}
+
+func TestRootCmd_PersistentPreRunE_StoresConfigLoadError(t *testing.T) {
+	brokenConfig := writeBrokenConfigFile(t)
+
+	_, loadErr := runPersistentPreRunWithConfigFile(t, "scan", brokenConfig)
+
+	// The error is stored (not returned) so commands can fail fast with
+	// validateConfigOrExit.
+	if loadErr == nil {
+		t.Error("Expected a stored config-load error for a broken config file")
 	}
 }
 
