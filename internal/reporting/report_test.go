@@ -495,12 +495,28 @@ func TestGenerateScanReport_WithFilterStats(t *testing.T) {
 		"| Lines Filtered (Regexp) | 400 |",
 		"| Lines Kept | 600 |",
 		"| Filter Reduction |",
-		"| Est. Tokens Saved |",
+		"| Est. Tokens Saved | ~8000 |",
+		"approximately 8000 tokens were saved",
 		"Cost Impact",
 	}
 	for _, want := range wantContains {
 		if !strings.Contains(result, want) {
 			t.Errorf("GenerateScanReport() with filter stats missing %q\nGot:\n%s", want, result)
 		}
+	}
+}
+
+// TestGenerateScanReport_NoFilterStatsSection pins that the pre-processing
+// statistics section is omitted when no lines were filtered in.
+func TestGenerateScanReport_NoFilterStatsSection(t *testing.T) {
+	analysis := &chunking.AnalyzeResult{
+		Analysis:    "Test",
+		FilterStats: chunking.FilterStats{},
+	}
+
+	result := GenerateScanReport("test", analysis, nil)
+
+	if strings.Contains(result, "Pre-Processing Statistics") {
+		t.Errorf("GenerateScanReport() should omit pre-processing section without filter stats\nGot:\n%s", result)
 	}
 }

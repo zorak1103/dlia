@@ -8,6 +8,27 @@ import (
 	"github.com/zorak1103/dlia/internal/docker"
 )
 
+// TestChunkLogs_FinalChunkAlwaysAppended pins that the final chunk is
+// appended even when the last log exactly filled the previous chunk — the
+// trailing append is unconditional because currentChunk always holds the
+// last processed log.
+func TestChunkLogs_FinalChunkAlwaysAppended(t *testing.T) {
+	t.Parallel()
+
+	tokenizer := NewMockTokenizer(0.1)
+	logs := []docker.LogEntry{
+		{Timestamp: "2024-01-15T10:00:00Z", Message: "log one"},
+		{Timestamp: "2024-01-15T10:00:01Z", Message: "log two"},
+	}
+
+	chunks := ChunkLogs(logs, 1, tokenizer) // every log forces its own chunk
+
+	require.Len(t, chunks, 2)
+	assert.Equal(t, "log one", chunks[0].Logs[0].Message)
+	assert.Equal(t, "log two", chunks[1].Logs[0].Message)
+	assert.Equal(t, 2, chunks[1].Total)
+}
+
 func TestChunkLogs(t *testing.T) {
 	tests := []struct {
 		name           string

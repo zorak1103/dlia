@@ -567,3 +567,88 @@ func TestLoad_ValidationErrorWithoutConfigFile(t *testing.T) {
 	assert.Contains(t, err.Error(), "config validation failed")
 	assert.Contains(t, err.Error(), "(using defaults and environment variables)")
 }
+
+// TestValidate_RetentionBoundaryValues pins the inclusive retention bounds:
+// 1 and 365 are valid, 0 and 366 are not.
+func TestValidate_RetentionBoundaryValues(t *testing.T) {
+	base := func(retention int) *Config {
+		return &Config{
+			LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test"},
+			Docker: DockerConfig{SocketPath: "test"},
+			Output: OutputConfig{
+				ReportsDir:             "test",
+				KnowledgeBaseDir:       "test",
+				StateFile:              "test",
+				KnowledgeRetentionDays: retention,
+			},
+		}
+	}
+
+	assert.NoError(t, base(1).Validate(), "retention 1 is the inclusive lower bound")
+	assert.NoError(t, base(365).Validate(), "retention 365 is the inclusive upper bound")
+	assert.Error(t, base(0).Validate(), "retention 0 is invalid")
+	assert.Error(t, base(366).Validate(), "retention 366 is invalid")
+}
+
+// TestValidate_ConfigSourceInErrorMessage pins that validation errors name
+// the config file when one is set, and the defaults placeholder when not.
+func TestValidate_ConfigSourceInErrorMessage(t *testing.T) {
+	cfg := &Config{
+		ConfigFilePath: "myconfig.yaml",
+		LLM:            LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test"},
+		Docker:         DockerConfig{SocketPath: "test"},
+		Output: OutputConfig{
+			ReportsDir:             "test",
+			KnowledgeBaseDir:       "test",
+			StateFile:              "test",
+			KnowledgeRetentionDays: 500,
+		},
+	}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "myconfig.yaml")
+
+	cfg.ConfigFilePath = ""
+	err = cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "(defaults/environment)")
+}
+
+// TestLoadFromViper_PreservesConfiguredSocketPath pins that an explicitly
+// configured docker.socket_path survives LoadFromViper instead of being
+// replaced by the auto-detection.
+func TestLoadFromViper_PreservesConfiguredSocketPath(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "")
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("llm.api_key", "test-key")
+	viper.Set("llm.model", "test-model")
+	viper.Set("llm.base_url", "http://test")
+	viper.Set("docker.socket_path", "unix:///test")
+	viper.Set("output.reports_dir", "test")
+	viper.Set("output.knowledge_base_dir", "test")
+	viper.Set("output.state_file", "test")
+
+	cfg, err := LoadFromViper()
+	require.NoError(t, err)
+	assert.Equal(t, "unix:///test", cfg.Docker.SocketPath)
+}
+
+// TestSetDefaults_PlatformSocketDefault pins the platform socket default:
+// the unix socket path when /var/run/docker.sock exists, the Windows named
+// pipe otherwise.
+func TestSetDefaults_PlatformSocketDefault(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "")
+
+	v := viper.New()
+	setDefaults(v)
+
+	got := v.GetString("docker.socket_path")
+	if _, err := os.Stat("/var/run/docker.sock"); err == nil {
+		assert.Equal(t, "unix:///var/run/docker.sock", got)
+	} else {
+		assert.Equal(t, "npipe:////./pipe/docker_engine", got)
+	}
+}

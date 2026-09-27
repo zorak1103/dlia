@@ -670,3 +670,22 @@ func TestNewPipelineWithConfig_RegexpFilters(t *testing.T) {
 		})
 	}
 }
+
+// TestNewPipelineWithConfig_IgnoreDir pins the ignore-dir defaulting: a
+// custom path is preserved verbatim, an empty path falls back to the
+// package default.
+func TestNewPipelineWithConfig_IgnoreDir(t *testing.T) {
+	promptLoader := prompts.NewPromptLoader(&config.Config{})
+
+	t.Run("custom ignore dir is preserved", func(t *testing.T) {
+		pipeline, err := NewPipelineWithConfig("gpt-4", 8000, NewMockLLMClient(), promptLoader, "/custom/ignore", nil)
+		require.NoError(t, err)
+		assert.Equal(t, "/custom/ignore", pipeline.ignoreDir)
+	})
+
+	t.Run("empty ignore dir falls back to default", func(t *testing.T) {
+		pipeline, err := NewPipelineWithConfig("gpt-4", 8000, NewMockLLMClient(), promptLoader, "", nil)
+		require.NoError(t, err)
+		assert.Equal(t, config.DefaultIgnoreDir, pipeline.ignoreDir)
+	})
+}

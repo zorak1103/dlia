@@ -701,6 +701,33 @@ func TestPromptLoader_ExecutiveSummaryTemplateErrors(t *testing.T) {
 	})
 }
 
+// TestPromptLoader_SynthesisPrompt_ChunkNumbering pins the chunk numbering
+// in the combined summaries: chunks are numbered starting at 1.
+func TestPromptLoader_SynthesisPrompt_ChunkNumbering(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	templatePath := filepath.Join(tmpDir, "synthesis_numbering.md")
+	err := os.WriteFile(templatePath, []byte("SUMMARIES:{{.Summaries}}"), 0600)
+	if err != nil {
+		t.Fatalf("Failed to write template: %v", err)
+	}
+
+	cfg := &config.Config{Prompts: config.PromptsConfig{SynthesisPrompt: templatePath}}
+	loader := NewPromptLoader(cfg)
+
+	prompt, err := loader.SynthesisPrompt("test", []string{"first summary", "second summary"})
+	if err != nil {
+		t.Fatalf("Error: %v", err)
+	}
+
+	if !strings.Contains(prompt, "--- Chunk 1 Summary ---\nfirst summary") {
+		t.Errorf("Expected chunk 1 heading with first summary, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, "--- Chunk 2 Summary ---\nsecond summary") {
+		t.Errorf("Expected chunk 2 heading with second summary, got: %s", prompt)
+	}
+}
+
 func BenchmarkPromptLoader_SystemPrompt(b *testing.B) {
 	cfg := &config.Config{}
 	loader := NewPromptLoader(cfg)

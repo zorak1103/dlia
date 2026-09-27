@@ -815,3 +815,25 @@ func TestNewNotifier_ConfigVariations(t *testing.T) {
 		})
 	}
 }
+
+// TestNotifier_SendScanSummary_SendFailure pins the send-failure error
+// message: the service type is extracted from the URL scheme, and a URL
+// without a scheme reports "unknown".
+func TestNotifier_SendScanSummary_SendFailure(t *testing.T) {
+	notifier := &Notifier{enabled: true, shoutrrrURL: "://not-a-valid-url"}
+
+	err := notifier.SendScanSummary("summary", 2, true)
+	if err == nil {
+		t.Fatal("Expected error when the shoutrrr send fails")
+	}
+
+	if !strings.Contains(err.Error(), "notification failed to send via unknown") {
+		t.Errorf("Expected 'via unknown' for a scheme-less URL, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "containers: 2") {
+		t.Errorf("Expected container count in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "issues: true") {
+		t.Errorf("Expected issues flag in error, got: %v", err)
+	}
+}
