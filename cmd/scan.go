@@ -11,13 +11,10 @@ import (
 	"github.com/zorak1103/dlia/internal/config"
 	"github.com/zorak1103/dlia/internal/docker"
 	"github.com/zorak1103/dlia/internal/knowledge"
-	"github.com/zorak1103/dlia/internal/llm"
 	"github.com/zorak1103/dlia/internal/notification"
 	"github.com/zorak1103/dlia/internal/prompts"
 	"github.com/zorak1103/dlia/internal/state"
 )
-
-// coverage-exempt: requires live Docker daemon and LLM API — covered by integration tests
 
 var scanCmd = &cobra.Command{
 	Use:   cmdScan,
@@ -182,7 +179,7 @@ func initializeDockerAndState(ctx context.Context, cfg *config.Config, scanCfg *
 	if scanCfg.verbose {
 		fmt.Println("🐳 Connecting to Docker...")
 	}
-	dockerClient, err := docker.NewClient(cfg.Docker.SocketPath)
+	dockerClient, err := newDockerClient(cfg.Docker.SocketPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
@@ -457,7 +454,7 @@ func generateExecutiveSummary(ctx context.Context, _ *chunking.Pipeline, contain
 		return "", fmt.Errorf("failed to load executive summary prompt: %w", err)
 	}
 
-	llmClient := llm.NewClient(cfg.LLM.BaseURL, cfg.LLM.APIKey, cfg.LLM.Model)
+	llmClient := newLLMClient(cfg.LLM.BaseURL, cfg.LLM.APIKey, cfg.LLM.Model)
 
 	systemPrompt, err := promptLoader.SystemPrompt("")
 	if err != nil {

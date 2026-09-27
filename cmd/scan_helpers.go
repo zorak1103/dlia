@@ -111,12 +111,15 @@ func displayAnalysisResults(result *chunking.AnalyzeResult, scanCfg *scanConfig)
 	fmt.Printf("        \n")
 }
 
+// newLLMClient is a seam for tests to stub LLM client construction.
+var newLLMClient = llm.NewClient
+
 func initializeLLMPipeline(cfg *config.Config, scanCfg *scanConfig) (*chunking.Pipeline, error) {
 	if cfg.LLM.APIKey == "" {
 		return nil, fmt.Errorf("LLM API key not configured (set DLIA_LLM_API_KEY in .env)")
 	}
 
-	llmClient := llm.NewClient(cfg.LLM.BaseURL, cfg.LLM.APIKey, cfg.LLM.Model)
+	llmClient := newLLMClient(cfg.LLM.BaseURL, cfg.LLM.APIKey, cfg.LLM.Model)
 
 	llmLogEnabled := scanCfg.llmLog || cfg.Output.LLMLogEnabled
 	if llmLogEnabled {
