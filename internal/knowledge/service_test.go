@@ -958,6 +958,16 @@ Some other text`,
 			want: "**Errors**\n- Critical error\nSome other text",
 		},
 		{
+			// The errors marker must not sit at index 0 here: the no-warnings
+			// fallback computes `end = len(analysis) - start`, and an offset
+			// start is what distinguishes that subtraction from addition.
+			name: "errors without warnings, marker not at start",
+			analysis: `Preamble text
+**Errors**
+- Error A`,
+			want: "**Errors**\n- Error A",
+		},
+		{
 			name:     "no errors section",
 			analysis: "No errors marker found",
 			want:     "Issues detected but could not parse specific errors.",
@@ -1138,5 +1148,79 @@ func BenchmarkUpdateGlobalSummary(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = UpdateGlobalSummary(results, cfg)
+	}
+}
+
+// TestPruneEntries_NoMarkerContentUnchanged pins that content without the
+// service-history marker is returned unchanged.
+func TestPruneEntries_NoMarkerContentUnchanged(t *testing.T) {
+	content := "# Knowledge Base: test-container\n\nSome other content\n"
+
+	result := pruneEntries(content, 30*24*time.Hour)
+
+	if result != content {
+		t.Errorf("pruneEntries() = %q, want unchanged %q", result, content)
+	}
+}
+
+// TestPruneEntries_ExactPrunedOutput pins the exact output: the header
+// section through the marker, followed by only the kept entries, each
+// terminated by the "---" separator. The kept entry comes first so that an
+// off-by-marker entries-section boundary cannot hide inside a dropped
+// expired segment.
+func TestPruneEntries_ExactPrunedOutput(t *testing.T) {
+	old := time.Now().Add(-40 * 24 * time.Hour).Format(time.RFC3339)
+	recent := time.Now().Add(-10 * 24 * time.Hour).Format(time.RFC3339)
+
+	content := "# Knowledge Base: test-container\n\n## Service History\n" +
+		"\n### Scan: " + recent + "\n**Status:** 🟢 Healthy\n\nRecent entry\n\n---\n" +
+		"\n### Scan: " + old + "\n**Status:** 🟢 Healthy\n\nOld entry\n\n---\n"
+
+	want := "# Knowledge Base: test-container\n\n## Service History\n" +
+		"\n### Scan: " + recent + "\n**Status:** 🟢 Healthy\n\nRecent entry\n\n---\n"
+
+	result := pruneEntries(content, 30*24*time.Hour)
+
+	if result != want {
+		t.Errorf("pruneEntries() =\n%q\nwant\n%q", result, want)
+	}
+}
+
+// TestUpdateServiceKB_KeepsRecentEntriesWithinRetention pins that the
+// retention window is applied in days: an entry well within the retention
+// period survives the update.
+func TestUpdateServiceKB_KeepsRecentEntriesWithinRetention(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &config.Config{
+		Output: config.OutputConfig{
+			KnowledgeBaseDir:       tmpDir,
+			KnowledgeRetentionDays: 30,
+		},
+	}
+
+	tenDaysAgo := time.Now().Add(-10 * 24 * time.Hour).Format(time.RFC3339)
+	existing := "# Knowledge Base: web-app\n\n## Service History\n\n### Scan: " + tenDaysAgo +
+		"\n**Status:** 🟢 Healthy\n\nPrevious scan\n\n---\n"
+	kbPath := filepath.Join(tmpDir, "services", "web-app.md")
+	if err := os.MkdirAll(filepath.Dir(kbPath), 0o750); err != nil {
+		t.Fatalf("failed to create services dir: %v", err)
+	}
+	if err := os.WriteFile(kbPath, []byte(existing), 0o600); err != nil {
+		t.Fatalf("failed to write existing KB file: %v", err)
+	}
+
+	if err := UpdateServiceKB("web-app", &chunking.AnalyzeResult{Analysis: "fresh analysis"}, cfg); err != nil {
+		t.Fatalf("UpdateServiceKB() error = %v", err)
+	}
+
+	data, err := os.ReadFile(kbPath)
+	if err != nil {
+		t.Fatalf("failed to read KB file: %v", err)
+	}
+	if !strings.Contains(string(data), "Previous scan") {
+		t.Errorf("entry within retention should survive, got:\n%s", data)
+	}
+	if !strings.Contains(string(data), "fresh analysis") {
+		t.Errorf("new entry should be appended, got:\n%s", data)
 	}
 }

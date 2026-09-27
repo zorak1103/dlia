@@ -143,6 +143,7 @@ func hasWarnings(analysis string) bool {
 
 // extractSummary extracts a brief summary from the analysis text.
 func extractSummary(analysis string) string {
+	// strings.Split never returns an empty slice, so lines[0] always exists.
 	lines := strings.Split(analysis, "\n")
 	for _, line := range lines {
 		if strings.Contains(line, "**Summary**") {
@@ -150,11 +151,7 @@ func extractSummary(analysis string) string {
 		}
 	}
 
-	if len(lines) > 0 {
-		return truncate(lines[0], 50)
-	}
-
-	return "No summary available"
+	return truncate(lines[0], 50)
 }
 
 // extractErrors extracts the errors section from the analysis text.

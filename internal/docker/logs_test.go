@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -501,4 +504,35 @@ func TestReadLogsLookback_CalculatesCorrectTime(t *testing.T) {
 	// but we've verified it doesn't error
 	expectedSince := now.Add(-lookback)
 	_ = expectedSince // Used in calculation but we can't directly verify with current mock
+}
+
+// TestParseLogStream_HeaderOnlyEightByteLine pins the strict boundary of the
+// header-skip guard: a line of exactly 8 bytes whose first byte is a stream
+// type is NOT truncated (the guard is len > 8), so it is parsed verbatim.
+func TestParseLogStream_HeaderOnlyEightByteLine(t *testing.T) {
+	// Exactly 8 bytes: a Docker header with no payload.
+	header := make([]byte, 8)
+	header[0] = 1
+
+	entries, err := parseLogStream(strings.NewReader(string(header) + "\n"))
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+
+	// No space in the 8-byte line, so parseLogLine keeps it whole as message.
+	assert.Equal(t, string(header), entries[0].Message)
+}
+
+// TestGetLatestLogTime_ParseErrorEntryIndex pins the entry index in the
+// parse-error message: the zero-based index of the last entry.
+func TestGetLatestLogTime_ParseErrorEntryIndex(t *testing.T) {
+	entries := []LogEntry{
+		{Timestamp: "2025-01-01T10:00:00Z", Message: "ok"},
+		{Timestamp: "2025-01-01T10:00:01Z", Message: "ok"},
+		{Timestamp: "not-a-timestamp", Message: "bad"},
+	}
+
+	_, err := GetLatestLogTime(entries)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "in log entry 2")
+	assert.Contains(t, err.Error(), "not-a-timestamp")
 }

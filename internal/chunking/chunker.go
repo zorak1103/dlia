@@ -67,13 +67,12 @@ func ChunkLogs(logs []docker.LogEntry, maxTokensPerChunk int, tokenizer Tokenize
 		}
 	}
 
-	// Add final chunk
-	if len(currentChunk) > 0 {
-		chunks = append(chunks, Chunk{
-			Logs:       currentChunk,
-			TokenCount: currentTokens,
-		})
-	}
+	// Add final chunk: currentChunk always holds at least the last processed
+	// log at this point, so the append is unconditional.
+	chunks = append(chunks, Chunk{
+		Logs:       currentChunk,
+		TokenCount: currentTokens,
+	})
 
 	// Set index and total for each chunk
 	total := len(chunks)

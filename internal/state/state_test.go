@@ -667,6 +667,36 @@ func TestState_ResetFiltered_Patterns(t *testing.T) {
 	}
 }
 
+// TestState_ResetFiltered_NoMatchLeavesStateUnmodified pins that resetting
+// with a pattern that matches nothing marks nothing modified and writes
+// nothing to disk.
+func TestState_ResetFiltered_NoMatchLeavesStateUnmodified(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "state.json")
+	s := &State{
+		Version:    "1",
+		Containers: map[string]*Container{"abc123": {Name: "app"}},
+		filePath:   filePath,
+	}
+
+	count, err := s.ResetFiltered("no-such-pattern-xyz")
+	if err != nil {
+		t.Fatalf("ResetFiltered() error = %v", err)
+	}
+	if count != 0 {
+		t.Errorf("ResetFiltered() count = %d, want 0", count)
+	}
+	if s.modified {
+		t.Error("state must not be marked modified when nothing matched")
+	}
+
+	// No matches means no save: the state file must not be created
+	// (a would-be save only refreshes last_updated without changing data).
+	if _, statErr := os.Stat(filePath); !os.IsNotExist(statErr) {
+		t.Error("state file must not be written when nothing matched")
+	}
+}
+
 func TestState_Save_RenameFailure(t *testing.T) {
 	tmpDir := t.TempDir()
 

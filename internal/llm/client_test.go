@@ -822,4 +822,62 @@ func TestClient_SummarizeChunk_PropagatesCompletionError(t *testing.T) {
 	}
 }
 
+// TestClient_ServerError500RetriedThreeTimes pins that a 500 is treated as
+// retryable: the request is attempted exactly maxRetries times before the
+// error surfaces.
+func TestClient_ServerError500RetriedThreeTimes(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-key", "test-model")
+
+	_, err := client.ChatCompletion(
+		context.Background(),
+		[]ChatMessage{{Role: "user", Content: "hi"}},
+		0.5, 100,
+	)
+	if err == nil {
+		t.Fatal("Expected error for a persistent 500 response")
+	}
+
+	if !strings.Contains(err.Error(), "returned status 500") {
+		t.Errorf("Expected API status error, got: %v", err)
+	}
+
+	if attempts != 3 {
+		t.Errorf("Expected 3 attempts for a retryable 500, got %d", attempts)
+	}
+}
+
+// TestClient_APIErrorExtractedFromNon200Response pins that a non-200
+// response carrying a parseable error object surfaces as *APIError.
+func TestClient_APIErrorExtractedFromNon200Response(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"invalid_api_key","message":"Incorrect API key","type":"invalid_request_error"}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-key", "test-model")
+
+	_, _, err := client.Analyze(context.Background(), "", "system", "user")
+	if err == nil {
+		t.Fatal("Expected error from 401 response with error object")
+	}
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("Expected *APIError, got: %v", err)
+	}
+
+	if apiErr.Code != "invalid_api_key" {
+		t.Errorf("Expected code 'invalid_api_key', got %q", apiErr.Code)
+	}
+}
+
 // Helper function to check if string contains substring
