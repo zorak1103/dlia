@@ -595,3 +595,78 @@ func TestPipeline_Constants(t *testing.T) {
 	assert.Equal(t, 500, SystemPromptReserveTokens, "Expected SystemPromptReserveTokens to be 500")
 	assert.Equal(t, 2, ChunkSizeDivisor, "Expected ChunkSizeDivisor to be 2")
 }
+
+func TestNewPipelineWithConfig_RegexpFilters(t *testing.T) {
+	// ponytail: exercises the second constructor path (pipeline.go 72-74).
+	// Filtering behavior is asserted through AnalyzeLogs; the boundary mutant
+	// on len(Patterns) > 0 is not behaviorally distinguishable (an empty
+	// filter keeps every line, same as no filter) and is documented.
+	logs := []docker.LogEntry{
+		{Timestamp: "2023-01-01T10:00:00Z", Stream: "stdout", Message: "DEBUG: noise one"},
+		{Timestamp: "2023-01-01T10:00:01Z", Stream: "stdout", Message: "INFO: keep me"},
+		{Timestamp: "2023-01-01T10:00:02Z", Stream: "stdout", Message: "DEBUG: noise two"},
+		{Timestamp: "2023-01-01T10:00:03Z", Stream: "stdout", Message: "ERROR: also keep"},
+	}
+
+	tests := []struct {
+		name           string
+		filters        map[string]config.RegexpFilter
+		wantErr        bool
+		errContains    string
+		originalCount  int
+		processedCount int
+	}{
+		{
+			name: "enabled filter with valid patterns filters matching lines",
+			filters: map[string]config.RegexpFilter{
+				"web-1": {Enabled: true, Patterns: []string{"^DEBUG:"}},
+			},
+			originalCount:  4,
+			processedCount: 2,
+		},
+		{
+			name: "disabled filter leaves logs untouched",
+			filters: map[string]config.RegexpFilter{
+				"web-1": {Enabled: false, Patterns: []string{"^DEBUG:"}},
+			},
+			originalCount:  4,
+			processedCount: 4,
+		},
+		{
+			name: "enabled filter with empty pattern list passes logs through",
+			filters: map[string]config.RegexpFilter{
+				"web-1": {Enabled: true, Patterns: []string{}},
+			},
+			originalCount:  4,
+			processedCount: 4,
+		},
+		{
+			name: "enabled filter with invalid pattern returns constructor error",
+			filters: map[string]config.RegexpFilter{
+				"web-1": {Enabled: true, Patterns: []string{"[invalid"}},
+			},
+			wantErr:     true,
+			errContains: "failed to create regexp filter for container web-1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{RegexpFilters: tt.filters}
+			promptLoader := prompts.NewPromptLoader(&config.Config{})
+			pipeline, err := NewPipelineWithConfig("gpt-4", 8000, NewMockLLMClient(), promptLoader, "", cfg)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+				return
+			}
+			require.NoError(t, err)
+
+			result, err := pipeline.AnalyzeLogs(context.Background(), "web-1", logs)
+			require.NoError(t, err)
+			assert.Equal(t, tt.originalCount, result.OriginalCount)
+			assert.Equal(t, tt.processedCount, result.ProcessedCount)
+		})
+	}
+}

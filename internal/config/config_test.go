@@ -3,10 +3,12 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoad_EnvVars(t *testing.T) {
@@ -484,4 +486,84 @@ func TestValidate_DisabledRegexpFilter_NotValidated(t *testing.T) {
 	// Disabled filters should not be validated
 	err := cfg.Validate()
 	assert.NoError(t, err)
+}
+
+func TestAutoDetectDockerSocket(t *testing.T) {
+	// ponytail: line 92 (unix socket found) is only reachable on hosts where
+	// /var/run/docker.sock exists; gremlins runs Linux in a container without
+	// the socket mounted, so that branch stays NOT COVERED there by design.
+	tests := []struct {
+		name        string
+		dockerHost  string
+		setDhEnvVar bool
+	}{
+		{
+			name:        "DOCKER_HOST set wins",
+			dockerHost:  "tcp://proxy:2375",
+			setDhEnvVar: true,
+		},
+		{
+			name:        "DOCKER_HOST empty falls through to detection",
+			dockerHost:  "",
+			setDhEnvVar: true,
+		},
+		{
+			name:        "DOCKER_HOST unset falls through to detection",
+			setDhEnvVar: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setDhEnvVar {
+				t.Setenv("DOCKER_HOST", tt.dockerHost)
+			} else {
+				// os.LookupEnv distinguishes unset from empty, but the code
+				// only checks Getenv != ""; make it deterministic either way.
+				t.Setenv("DOCKER_HOST", "")
+			}
+
+			got := autoDetectDockerSocket()
+
+			if tt.setDhEnvVar && tt.dockerHost != "" {
+				assert.Equal(t, tt.dockerHost, got)
+				return
+			}
+
+			// No DOCKER_HOST: expectation depends on platform + socket presence.
+			if runtime.GOOS == "windows" {
+				assert.Equal(t, "npipe:////./pipe/docker_engine", got)
+				return
+			}
+			if _, err := os.Stat("/var/run/docker.sock"); err == nil {
+				assert.Equal(t, "unix:///var/run/docker.sock", got)
+			} else {
+				assert.Equal(t, "npipe:////./pipe/docker_engine", got)
+			}
+		})
+	}
+}
+
+func TestLoad_UnmarshalErrorWithoutConfigFile(t *testing.T) {
+	// ponytail: forces the Unmarshal error branch of Load with no config file
+	// used, pinning the "(using defaults and environment variables)" fallback
+	// in the error message.
+	t.Setenv("DLIA_LLM_MAX_TOKENS", "not-a-number")
+
+	_, err := Load("")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "error unmarshaling config")
+	assert.Contains(t, err.Error(), "(using defaults and environment variables)")
+}
+
+func TestLoad_ValidationErrorWithoutConfigFile(t *testing.T) {
+	// ponytail: forces the Validate error branch of Load with no config file
+	// used; an empty API key fails validation, pinning the same fallback text
+	// in the validation error message.
+	t.Setenv("DLIA_LLM_API_KEY", "")
+
+	_, err := Load("")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "config validation failed")
+	assert.Contains(t, err.Error(), "(using defaults and environment variables)")
 }
