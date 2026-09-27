@@ -12,22 +12,22 @@
 
 **DLIA** is an AI-powered Docker log monitoring agent that uses Large Language Models (LLMs) to intelligently analyze container logs, detect anomalies, and provide contextual insights over time.
 
-## ✨ Features
+## Features
 
-- 🤖 **Semantic Log Analysis** - Uses LLMs to understand log context, not just keyword matching.
-- 📊 **Historical Context** - Tracks trends over time to detect gradual degradation.
-- 🤫 **Natural Language Filtering** - Ignore routine errors or expected noise by providing instructions in plain English (e.g., "Ignore 'connection refused' during nightly backups").
-- 🧠 **Self-Cleaning Knowledge Base** - Automatically "forgets" issues based on a configurable retention period (default: 30 days), keeping the knowledge base relevant.
-- 🔧 **Customizable AI Prompts** - Override the default AI instructions to tune the analysis process for your specific needs.
-- 🔒 **Privacy-First** - Automatic anonymization of IPs, secrets, and sensitive data.
-- 🔌 **Flexible LLM Backend** - Works with OpenAI, OpenRouter, Ollama, or any OpenAI-compatible API.
-- 📝 **Markdown Reports** - Human-readable persistent knowledge base.
-- 🔔 **Universal Notifications** - Email, Discord, Slack, and more via Shoutrrr.
-- 🐳 **Docker Native** - Direct Docker socket integration.
-- ⚡ **Single Binary** - No runtime dependencies except Docker.
-- 📦 **Multi-arch Docker Images** - Available for amd64 and arm64.
+- **Semantic Log Analysis** - Uses LLMs to understand log context, not just keyword matching.
+- **Historical Context** - Tracks trends over time to detect gradual degradation.
+- **Natural Language Filtering** - Ignore routine errors or expected noise by providing instructions in plain English (e.g., "Ignore 'connection refused' during nightly backups").
+- **Self-Cleaning Knowledge Base** - Automatically "forgets" issues based on a configurable retention period (default: 30 days), keeping the knowledge base relevant.
+- **Customizable AI Prompts** - Override the default AI instructions to tune the analysis process for your specific needs.
+- **Privacy-First** - Automatic anonymization of IPs, secrets, and sensitive data.
+- **Flexible LLM Backend** - Works with OpenAI, OpenRouter, Ollama, or any OpenAI-compatible API.
+- **Markdown Reports** - Human-readable persistent knowledge base.
+- **Universal Notifications** - Email, Discord, Slack, and more via Shoutrrr.
+- **Docker Native** - Direct Docker socket integration.
+- **Single Binary** - No runtime dependencies except Docker.
+- **Multi-arch Docker Images** - Available for amd64 and arm64.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -86,7 +86,7 @@ notepad config.yaml
 ./dlia.exe scan
 ```
 
-## 📖 Usage
+## Usage
 
 ### Commands
 
@@ -160,14 +160,14 @@ dlia cleanup execute --force
 - Report directories (`reports/*/`)
 - LLM log directories (`logs/llm/*/`)
 
-**⚠️ Warning**: The cleanup command permanently deletes data. Always review the list with `cleanup list` or use `--dry-run` before executing. Use `--force` only when you're certain.
+**Warning**: The cleanup command permanently deletes data. Always review the list with `cleanup list` or use `--dry-run` before executing. Use `--force` only when you're certain.
 
 ### Global Flags
 
 - `--config` - Path to config file (default: `./config.yaml`)
 - `--verbose`, `-v` - Enable verbose logging
 
-## ⚙️ Configuration
+## Configuration
 
 DLIA uses a `config.yaml` file with environment variable overrides.
 
@@ -389,7 +389,7 @@ output:
   knowledge_retention_days: 180
 ```
 
-## 🐳 Docker
+## Docker
 
 ### Image Tags
 
@@ -453,11 +453,11 @@ services:
 - Container runs as non-root user (UID 1000)
 - Minimal Alpine base image (~10MB)
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please feel free to submit issues and pull requests.
 
-## 📚 References
+## References
 
 - [Cobra CLI Framework](https://github.com/spf13/cobra)
 - [Viper Configuration](https://github.com/spf13/viper)
