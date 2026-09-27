@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -686,6 +687,139 @@ func TestSummarizeChunk_LoggerGuards(t *testing.T) {
 			t.Errorf("Expected log warning on stdout, got: %q", out)
 		}
 	})
+}
+
+func TestClient_RetryNetworkErrorExhausted(t *testing.T) {
+	// Use the URL of a server that has already been closed so every attempt
+	// fails at the network (transport) level, not with a retryable 5xx status.
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	baseURL := server.URL
+	server.Close()
+
+	client := NewClient(baseURL, "test-key", "test-model")
+
+	_, err := client.ChatCompletion(
+		context.Background(),
+		[]ChatMessage{{Role: "user", Content: "hi"}},
+		0.5, 100,
+	)
+	if err == nil {
+		t.Fatal("Expected error when all attempts fail at the network level")
+	}
+
+	if !strings.Contains(err.Error(), "failed after 3 attempts") {
+		t.Errorf("Expected 'failed after 3 attempts' error, got: %v", err)
+	}
+}
+
+func TestClient_ReadResponseBodyError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// Advertise more bytes than are sent so io.ReadAll fails with an
+		// unexpected EOF while draining the response body.
+		w.Header().Set("Content-Length", "100")
+		_, _ = w.Write([]byte(`{"partial`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-key", "test-model")
+
+	_, err := client.ChatCompletion(
+		context.Background(),
+		[]ChatMessage{{Role: "user", Content: "hi"}},
+		0.5, 100,
+	)
+	if err == nil {
+		t.Fatal("Expected error when response body cannot be read")
+	}
+
+	if !strings.Contains(err.Error(), "failed after 3 attempts") {
+		t.Errorf("Expected read error to be retried and surfaced, got: %v", err)
+	}
+}
+
+func TestClient_MarshalRequestError(t *testing.T) {
+	client := NewClient("http://api.example.invalid/v1", "test-key", "test-model")
+
+	// NaN cannot be represented in JSON, so marshaling the request fails
+	// before any HTTP traffic happens.
+	_, err := client.ChatCompletion(
+		context.Background(),
+		[]ChatMessage{{Role: "user", Content: "hi"}},
+		math.NaN(), 100,
+	)
+	if err == nil {
+		t.Fatal("Expected error when request cannot be marshaled")
+	}
+
+	if !strings.Contains(err.Error(), "failed to marshal chat completion request") {
+		t.Errorf("Expected marshal error, got: %v", err)
+	}
+}
+
+func TestClient_NewRequestError(t *testing.T) {
+	// A base URL without a scheme makes http.NewRequestWithContext fail.
+	client := NewClient("://invalid-base-url", "test-key", "test-model")
+
+	_, err := client.ChatCompletion(
+		context.Background(),
+		[]ChatMessage{{Role: "user", Content: "hi"}},
+		0.5, 100,
+	)
+	if err == nil {
+		t.Fatal("Expected error when HTTP request cannot be created")
+	}
+
+	if !strings.Contains(err.Error(), "failed to create HTTP request") {
+		t.Errorf("Expected request creation error, got: %v", err)
+	}
+}
+
+func TestClient_OKResponseWithAPIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"error":{"code":"insufficient_quota","message":"quota exceeded","type":"quota_error"}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-key", "test-model")
+
+	_, err := client.ChatCompletion(
+		context.Background(),
+		[]ChatMessage{{Role: "user", Content: "hi"}},
+		0.5, 100,
+	)
+	if err == nil {
+		t.Fatal("Expected API error from a 200 response carrying an error object")
+	}
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("Expected *APIError, got: %v", err)
+	}
+
+	if apiErr.Code != "insufficient_quota" {
+		t.Errorf("Expected code 'insufficient_quota', got %q", apiErr.Code)
+	}
+}
+
+func TestClient_SummarizeChunk_PropagatesCompletionError(t *testing.T) {
+	// A 4xx status is not retried, so this fails fast on the first attempt.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`bad request`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-key", "test-model")
+
+	_, err := client.SummarizeChunk(context.Background(), "test-container", "system", "chunk")
+	if err == nil {
+		t.Fatal("Expected SummarizeChunk to propagate the completion error")
+	}
+
+	if !strings.Contains(err.Error(), "returned status 400") {
+		t.Errorf("Expected underlying API status error, got: %v", err)
+	}
 }
 
 // Helper function to check if string contains substring

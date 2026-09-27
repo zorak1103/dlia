@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -663,5 +664,83 @@ func TestState_ResetFiltered_Patterns(t *testing.T) {
 				t.Errorf("ResetFiltered() count = %v, want %v", count, tt.wantCount)
 			}
 		})
+	}
+}
+
+func TestState_Save_RenameFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// A directory sitting at the target path makes the final atomic rename
+	// fail after the temp file has already been written and synced.
+	target := filepath.Join(tmpDir, "state.json")
+	if err := os.Mkdir(target, 0o750); err != nil {
+		t.Fatalf("failed to create blocking directory: %v", err)
+	}
+
+	s := &State{
+		Version:    "1",
+		Containers: make(map[string]*Container),
+		filePath:   target,
+	}
+	s.UpdateContainer("abc123", "test-container", time.Now(), "cursor-1")
+
+	err := s.Save()
+	if err == nil {
+		t.Fatal("Expected error when rename target is a directory")
+	}
+
+	if !strings.Contains(err.Error(), "failed to rename") {
+		t.Errorf("Expected rename failure error, got: %v", err)
+	}
+
+	// The temp file should have been cleaned up after the failed rename.
+	entries, readErr := os.ReadDir(tmpDir)
+	if readErr != nil {
+		t.Fatalf("failed to read temp dir: %v", readErr)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tmp") {
+			t.Errorf("leftover temp file after failed save: %s", entry.Name())
+		}
+	}
+
+	// The state should still be marked modified so a later Save can retry.
+	if !s.modified {
+		t.Error("Expected state to remain modified after failed save")
+	}
+}
+
+func TestState_Delete_Failure(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// os.Remove on a directory fails with an error that is not
+	// os.ErrNotExist, exercising the error branch of Delete. On Unix the
+	// directory must be non-empty; on Windows it fails regardless.
+	target := filepath.Join(tmpDir, "state.json")
+	if err := os.Mkdir(target, 0o750); err != nil {
+		t.Fatalf("failed to create blocking directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "blocker"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("failed to write blocker file: %v", err)
+	}
+
+	s := &State{
+		Version:    "1",
+		Containers: map[string]*Container{"abc123": {Name: "test-container"}},
+		filePath:   target,
+	}
+
+	err := s.Delete()
+	if err == nil {
+		t.Fatal("Expected error when state file cannot be deleted")
+	}
+
+	if !strings.Contains(err.Error(), "failed to delete state file") {
+		t.Errorf("Expected delete failure error, got: %v", err)
+	}
+
+	// Delete returned early, so the in-memory containers must be untouched.
+	if s.Count() != 1 {
+		t.Errorf("Expected containers to remain intact after failed delete, got count %d", s.Count())
 	}
 }
