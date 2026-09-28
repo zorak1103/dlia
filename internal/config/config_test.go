@@ -618,6 +618,9 @@ func TestValidate_ConfigSourceInErrorMessage(t *testing.T) {
 // TestLoadFromViper_PreservesConfiguredSocketPath pins that an explicitly
 // configured docker.socket_path survives LoadFromViper instead of being
 // replaced by the auto-detection.
+//
+// Uses the global viper instance (established pattern, see TestLoadFromViper);
+// tests in this package must not run in parallel.
 func TestLoadFromViper_PreservesConfiguredSocketPath(t *testing.T) {
 	t.Setenv("DOCKER_HOST", "")
 
@@ -638,7 +641,9 @@ func TestLoadFromViper_PreservesConfiguredSocketPath(t *testing.T) {
 
 // TestSetDefaults_PlatformSocketDefault pins the platform socket default:
 // the unix socket path when /var/run/docker.sock exists, the Windows named
-// pipe otherwise.
+// pipe otherwise. Deliberately close to TestAutoDetectDockerSocket's
+// both-ways guard — different entry point (direct setDefaults call), and
+// this is the assertion that kills the operator-inversion mutant.
 func TestSetDefaults_PlatformSocketDefault(t *testing.T) {
 	t.Setenv("DOCKER_HOST", "")
 

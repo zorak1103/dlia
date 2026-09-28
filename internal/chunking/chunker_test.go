@@ -9,9 +9,8 @@ import (
 )
 
 // TestChunkLogs_FinalChunkAlwaysAppended pins that the final chunk is
-// appended even when the last log exactly filled the previous chunk — the
-// trailing append is unconditional because currentChunk always holds the
-// last processed log.
+// appended when every log overflows its own chunk — the trailing append is
+// unconditional because currentChunk always holds the last processed log.
 func TestChunkLogs_FinalChunkAlwaysAppended(t *testing.T) {
 	t.Parallel()
 
