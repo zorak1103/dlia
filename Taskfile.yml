@@ -100,10 +100,32 @@ tasks:
   # MUTATION TESTING
   # ============================================================================
   gremlins:
-    desc: Run mutation testing with gremlins unleash (via Docker)
+    desc: Run mutation testing with gremlins unleash (via Docker, persistent Go caches)
     cmds:
-      # renovate: datasource=docker depName=gogremlins/gremlins
-      - docker run --rm -v "{{.TASKFILE_DIR}}:/app" -w /app -e GOTOOLCHAIN=auto gogremlins/gremlins:0.6.0 gremlins unleash .
+      - task: gremlins:cache:init
+      # Persistent Go caches cut ~60-100s of toolchain download + cold compile
+      # per run; the explicit timeout-coefficient keeps the derived per-mutant
+      # timeout above real test time when the coverage phase itself is cached
+      # (a fast coverage phase otherwise shrinks the ceiling and causes mass
+      # false TIMED OUT results).
+      - docker run --rm -v "{{.TASKFILE_DIR}}:/app" -v gremlins-gopkg:/go/pkg -v gremlins-gocache:/home/nonroot/.cache/go-build -w /app -e GOTOOLCHAIN=auto gogremlins/gremlins:0.6.0 gremlins unleash . --timeout-coefficient 60
+
+  gremlins:cache:init:
+    desc: One-time setup of the persistent Go caches for gremlins (idempotent)
+    cmds:
+      - docker volume create gremlins-gopkg
+      - docker volume create gremlins-gocache
+      # The image runs as uid 1000; named volumes mount root-owned, so grant
+      # access once and leave a marker to keep repeat runs cheap.
+      - docker run --rm -v gremlins-gopkg:/go/pkg -v gremlins-gocache:/home/nonroot/.cache/go-build --user root --entrypoint sh gogremlins/gremlins:0.6.0 -c "test -f /go/pkg/.dlia-cache-ready || (chown -R 1000:1000 /go/pkg /home/nonroot/.cache/go-build && touch /go/pkg/.dlia-cache-ready)"
+
+  gremlins:pkg:
+    desc: Mutation-test one package with the full suite per mutant (-i), e.g. `task gremlins:pkg -- ./internal/llm`
+    cmds:
+      - task: gremlins:cache:init
+      # Non-integration gremlins can misreport kill status for a package's
+      # mutants; -i runs the complete suite per mutant and is authoritative.
+      - docker run --rm -v "{{.TASKFILE_DIR}}:/app" -v gremlins-gopkg:/go/pkg -v gremlins-gocache:/home/nonroot/.cache/go-build -w /app -e GOTOOLCHAIN=auto gogremlins/gremlins:0.6.0 gremlins unleash {{.CLI_ARGS}} -i --timeout-coefficient 60
 
   gremlins:install:
     desc: Install the gremlins binary locally for native use (tracked by Renovate)
