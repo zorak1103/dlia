@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -824,11 +825,12 @@ func TestClient_SummarizeChunk_PropagatesCompletionError(t *testing.T) {
 
 // TestClient_ServerError500RetriedThreeTimes pins that a 500 is treated as
 // retryable: the request is attempted exactly maxRetries times before the
-// error surfaces.
+// error surfaces. The test takes ~3s: the two inter-attempt backoff sleeps
+// (1s + 2s) are part of the pinned behavior.
 func TestClient_ServerError500RetriedThreeTimes(t *testing.T) {
-	attempts := 0
+	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		attempts++
+		attempts.Add(1)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -848,8 +850,8 @@ func TestClient_ServerError500RetriedThreeTimes(t *testing.T) {
 		t.Errorf("Expected API status error, got: %v", err)
 	}
 
-	if attempts != 3 {
-		t.Errorf("Expected 3 attempts for a retryable 500, got %d", attempts)
+	if got := attempts.Load(); got != 3 {
+		t.Errorf("Expected 3 attempts for a retryable 500, got %d", got)
 	}
 }
 

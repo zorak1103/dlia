@@ -507,7 +507,8 @@ func TestGenerateScanReport_WithFilterStats(t *testing.T) {
 }
 
 // TestGenerateScanReport_NoFilterStatsSection pins that the pre-processing
-// statistics section is omitted when no lines were filtered in.
+// statistics section is omitted when FilterStats is the zero value: the
+// gate is LinesTotal > 0, not LinesFiltered.
 func TestGenerateScanReport_NoFilterStatsSection(t *testing.T) {
 	analysis := &chunking.AnalyzeResult{
 		Analysis:    "Test",
