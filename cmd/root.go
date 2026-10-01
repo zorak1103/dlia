@@ -58,6 +58,12 @@ It features:
 			}
 		}
 
+		if cfg != nil {
+			for _, w := range cfg.Warnings {
+				fmt.Fprintf(os.Stderr, "Warning: %s\n", w)
+			}
+		}
+
 		if verbose && cfg != nil {
 			fmt.Fprintf(os.Stderr, "Loaded configuration from: %s\n", cfg.ConfigFilePath)
 		}

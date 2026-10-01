@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
@@ -15,6 +16,33 @@ import (
 // Common errors
 var (
 	Err = errors.New("config error")
+
+	// ErrNoConfigFile marks a load error that happened without any config file
+	// (defaults and environment variables only). Check it with errors.Is.
+	ErrNoConfigFile = errors.New("no config file found")
+)
+
+// noConfigFileError keeps the original message and cause of a load error while
+// matching ErrNoConfigFile.
+type noConfigFileError struct{ err error }
+
+func (e *noConfigFileError) Error() string        { return e.err.Error() }
+func (e *noConfigFileError) Unwrap() error        { return e.err }
+func (e *noConfigFileError) Is(target error) bool { return target == ErrNoConfigFile }
+
+// markNoConfigFile tags err with ErrNoConfigFile when no config file was used.
+func markNoConfigFile(err error, configFileUsed string) error {
+	if configFileUsed != "" {
+		return err
+	}
+	return &noConfigFileError{err: err}
+}
+
+const (
+	// DefaultContextWindow is the assumed model context window when none is configured.
+	DefaultContextWindow = 128000
+	// MinContextWindow is (ResponseReserveTokens + SystemPromptReserveTokens) / 0.8 — keeps the budget positive with the 80% estimate margin.
+	MinContextWindow = 5625
 )
 
 // RegexpFilter represents regexp-based filtering configuration for a container
@@ -31,10 +59,19 @@ type Config struct {
 	Output        OutputConfig            `mapstructure:"output"`
 	Privacy       PrivacyConfig           `mapstructure:"privacy"`
 	Prompts       PromptsConfig           `mapstructure:"prompts"`
+	Scan          ScanConfig              `mapstructure:"scan"`
 	RegexpFilters map[string]RegexpFilter `mapstructure:"regexp_filters"`
 
 	// ConfigFilePath stores the path to the loaded config file (not marshaled from YAML)
 	ConfigFilePath string `mapstructure:"-"`
+
+	// Warnings collects non-fatal configuration notices (e.g. deprecated keys)
+	Warnings []string `mapstructure:"-"`
+}
+
+// ScanConfig contains settings for the log scan window
+type ScanConfig struct {
+	MaxWindow time.Duration `mapstructure:"max_window"`
 }
 
 // PromptsConfig contains paths to custom prompt templates
@@ -48,10 +85,16 @@ type PromptsConfig struct {
 
 // LLMConfig contains settings for the LLM API
 type LLMConfig struct {
-	BaseURL   string `mapstructure:"base_url"`
-	APIKey    string `mapstructure:"api_key"`
-	Model     string `mapstructure:"model"`
-	MaxTokens int    `mapstructure:"max_tokens"`
+	BaseURL               string `mapstructure:"base_url"`
+	APIKey                string `mapstructure:"api_key"`
+	Model                 string `mapstructure:"model"`
+	ContextWindow         int    `mapstructure:"context_window"`
+	MaxChunksPerContainer int    `mapstructure:"max_chunks_per_container"`
+	// MaxTokens is a deprecated alias for ContextWindow.
+	MaxTokens int `mapstructure:"max_tokens"`
+
+	// contextWindowFromAlias records that ContextWindow was taken from MaxTokens.
+	contextWindowFromAlias bool
 }
 
 // DockerConfig contains Docker-specific settings
@@ -147,6 +190,8 @@ func Load(configPath string) (*Config, error) {
 	// Store the config file path in the struct (DI approach, no global state)
 	cfg.ConfigFilePath = v.ConfigFileUsed()
 
+	resolveContextWindow(&cfg)
+
 	// Auto-detect Docker socket if not specified
 	if cfg.Docker.SocketPath == "" {
 		cfg.Docker.SocketPath = autoDetectDockerSocket()
@@ -158,7 +203,7 @@ func Load(configPath string) (*Config, error) {
 		if configFile == "" {
 			configFile = "(using defaults and environment variables)"
 		}
-		return nil, fmt.Errorf("config validation failed for %s: %w", configFile, err)
+		return nil, markNoConfigFile(fmt.Errorf("config validation failed for %s: %w", configFile, err), v.ConfigFileUsed())
 	}
 
 	return &cfg, nil
@@ -183,6 +228,8 @@ func LoadFromViper() (*Config, error) {
 	// Store the config file path (DI approach, even for testing)
 	cfg.ConfigFilePath = viper.ConfigFileUsed()
 
+	resolveContextWindow(&cfg)
+
 	// Auto-detect Docker socket if not specified
 	if cfg.Docker.SocketPath == "" {
 		cfg.Docker.SocketPath = autoDetectDockerSocket()
@@ -200,8 +247,14 @@ func setDefaults(v *viper.Viper) {
 	// LLM defaults
 	v.SetDefault("llm.base_url", "https://api.openai.com/v1")
 	v.SetDefault("llm.model", "gpt-4o-mini")
-	v.SetDefault("llm.max_tokens", 128000)
+	v.SetDefault("llm.max_chunks_per_container", 10)
 	v.SetDefault("llm.api_key", "") // Required for AutomaticEnv to work
+	// No defaults: "unset" must stay 0 so resolveContextWindow can detect the deprecated alias.
+	_ = v.BindEnv("llm.context_window") // nolint:errcheck // only errors without a key
+	_ = v.BindEnv("llm.max_tokens")     // nolint:errcheck // only errors without a key
+
+	// Scan defaults
+	v.SetDefault("scan.max_window", "24h")
 
 	// Docker defaults
 	if os.Getenv("DOCKER_HOST") != "" {
@@ -243,6 +296,24 @@ func setDefaults(v *viper.Viper) {
 
 	// Regexp filters defaults (empty map = no filters)
 	v.SetDefault("regexp_filters", map[string]RegexpFilter{})
+}
+
+// resolveContextWindow maps the deprecated llm.max_tokens onto llm.context_window
+// and falls back to DefaultContextWindow when neither is set.
+func resolveContextWindow(cfg *Config) {
+	if cfg.LLM.MaxTokens > 0 {
+		msg := "llm.max_tokens is deprecated; use llm.context_window instead"
+		if cfg.LLM.ContextWindow > 0 {
+			msg += " (ignored because llm.context_window is set)"
+		} else {
+			cfg.LLM.ContextWindow = cfg.LLM.MaxTokens
+			cfg.LLM.contextWindowFromAlias = true
+		}
+		cfg.Warnings = append(cfg.Warnings, msg)
+	}
+	if cfg.LLM.ContextWindow == 0 {
+		cfg.LLM.ContextWindow = DefaultContextWindow
+	}
 }
 
 // Validate ensures all required fields are set and values are within valid ranges.
@@ -289,6 +360,22 @@ func (c *Config) validateRanges(configSource string) error {
 	if c.Output.KnowledgeRetentionDays < 1 || c.Output.KnowledgeRetentionDays > 365 {
 		return fmt.Errorf("output.knowledge_retention_days must be between 1 and 365, got %d in config %s",
 			c.Output.KnowledgeRetentionDays, configSource)
+	}
+	if c.Scan.MaxWindow < time.Minute {
+		return fmt.Errorf("scan.max_window must be at least 1m, got %v in config %s (use a quoted duration like \"24h\"; a bare number is read as nanoseconds)",
+			c.Scan.MaxWindow, configSource)
+	}
+	if c.LLM.MaxChunksPerContainer < 1 {
+		return fmt.Errorf("llm.max_chunks_per_container must be at least 1, got %d in config %s",
+			c.LLM.MaxChunksPerContainer, configSource)
+	}
+	if c.LLM.ContextWindow < MinContextWindow {
+		name := "llm.context_window"
+		if c.LLM.contextWindowFromAlias {
+			name = fmt.Sprintf("llm.context_window (set via deprecated llm.max_tokens=%d)", c.LLM.MaxTokens)
+		}
+		return fmt.Errorf("%s must be at least %d, got %d in config %s",
+			name, MinContextWindow, c.LLM.ContextWindow, configSource)
 	}
 	return nil
 }

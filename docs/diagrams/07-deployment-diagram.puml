@@ -159,7 +159,10 @@ note right of llm_provider
   llm:
     base_url: "https://api.openai.com/v1"
     model: "gpt-4o-mini"
-    max_tokens: 128000
+    context_window: 128000
+    max_chunks_per_container: 10
+  scan:
+    max_window: "24h"
   ```
   
   .env:

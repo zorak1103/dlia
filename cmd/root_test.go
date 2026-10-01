@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -401,10 +403,12 @@ func TestRootCmd_PersistentPreRunE_LoadConfig(t *testing.T) {
 	originalCfg := cfg
 	originalCfgFile := cfgFile
 	originalVerbose := verbose
+	originalErr := errConfigLoad
 	defer func() {
 		cfg = originalCfg
 		cfgFile = originalCfgFile
 		verbose = originalVerbose
+		errConfigLoad = originalErr
 	}()
 
 	// Create a mock command that is not init or help
@@ -427,10 +431,12 @@ func TestRootCmd_PersistentPreRunE_VerboseMode(t *testing.T) {
 	originalCfg := cfg
 	originalCfgFile := cfgFile
 	originalVerbose := verbose
+	originalErr := errConfigLoad
 	defer func() {
 		cfg = originalCfg
 		cfgFile = originalCfgFile
 		verbose = originalVerbose
+		errConfigLoad = originalErr
 	}()
 
 	// Create a mock command
@@ -528,5 +534,38 @@ func TestRootCmd_SubcommandState(t *testing.T) {
 	}
 	if !found {
 		t.Error("Expected 'state' subcommand to be registered")
+	}
+}
+
+func TestRootCmd_PersistentPreRunE_PrintsConfigWarnings(t *testing.T) {
+	t.Setenv("DLIA_LLM_CONTEXT_WINDOW", "")
+	t.Setenv("DLIA_LLM_MAX_TOKENS", "")
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	content := "llm:\n  api_key: test-key\n  max_tokens: 50000\n"
+	if err := os.WriteFile(configPath, []byte(content), 0600); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	original := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Failed to create pipe: %v", err)
+	}
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = original })
+
+	loadedCfg, loadErr := runPersistentPreRunWithConfigFile(t, "scan", configPath)
+
+	os.Stderr = original
+	_ = w.Close()
+	out, _ := io.ReadAll(r)
+
+	if loadErr != nil || loadedCfg == nil {
+		t.Fatalf("Expected config to load, got cfg=%v err=%v", loadedCfg, loadErr)
+	}
+	want := "Warning: llm.max_tokens is deprecated; use llm.context_window instead"
+	if !strings.Contains(string(out), want) {
+		t.Errorf("Expected stderr to contain %q, got %q", want, string(out))
 	}
 }

@@ -55,10 +55,10 @@ func setupScanRunTest(t *testing.T) *scanRunEnv {
 	cfg = &config.Config{
 		ConfigFilePath: configFile,
 		LLM: config.LLMConfig{
-			APIKey:    "test-key",
-			Model:     "test-model",
-			BaseURL:   "http://localhost",
-			MaxTokens: 4000,
+			APIKey:        "test-key",
+			Model:         "test-model",
+			BaseURL:       "http://localhost",
+			ContextWindow: 4000,
 		},
 		Docker: config.DockerConfig{
 			SocketPath: "unix:///var/run/docker.sock",
@@ -109,11 +109,15 @@ func withScanDockerMock(t *testing.T, mock *MockDockerClient, factoryErr error) 
 type fakeScanLLM struct {
 	analysis  string
 	failAfter int
+	failAll   bool
 	calls     int
 }
 
 func (f *fakeScanLLM) Analyze(_ context.Context, _, _, _ string) (string, *llm.TokenUsage, error) {
 	f.calls++
+	if f.failAll {
+		return "", nil, errors.New("llm exploded")
+	}
 	if f.failAfter > 0 && f.calls > f.failAfter {
 		return "", nil, errors.New("llm exploded")
 	}

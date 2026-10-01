@@ -134,6 +134,7 @@ package "internal/chunking" {
         -tokenizer TokenizerInterface
         -client llm.ClientInterface
         -maxTokens int
+        -maxChunks int
         -ignoreDir string
         +AnalyzeLogs(ctx, containerName string, logs []LogEntry) (*AnalyzeResult, error)
         -analyzeDirectly(ctx, name string, logs []LogEntry, sysPrompt, logsText string) (string, *TokenUsage, error)
@@ -208,7 +209,13 @@ package "internal/config" {
         +BaseURL string
         +APIKey string
         +Model string
-        +MaxTokens int
+        +ContextWindow int
+        +MaxChunksPerContainer int
+        +MaxTokens int <<deprecated>>
+    }
+    
+    class ScanConfig <<struct>> {
+        +MaxWindow time.Duration
     }
     
     class DockerConfig <<struct>> {
@@ -246,6 +253,7 @@ package "internal/config" {
     Config *-- OutputConfig
     Config *-- PrivacyConfig
     Config *-- PromptsConfig
+    Config *-- ScanConfig
 }
 
 package "internal/prompts" {

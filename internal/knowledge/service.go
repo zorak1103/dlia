@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -85,40 +86,76 @@ func pruneEntries(content string, retention time.Duration) string {
 	var builder strings.Builder
 	builder.WriteString(headerSection)
 
-	for _, entry := range strings.Split(entriesSection, "---\n") {
-		if strings.TrimSpace(entry) == "" {
-			continue
-		}
-
+	for _, entry := range splitEntries(entriesSection) {
 		if !isEntryExpired(entry, cutoff) {
 			builder.WriteString(entry)
-			builder.WriteString("---\n")
 		}
 	}
 
 	return builder.String()
 }
 
-func isEntryExpired(entry string, cutoff time.Time) bool {
-	timestamp := extractEntryTimestamp(entry)
-	if timestamp == "" {
-		return false
-	}
+// scanHeadingRe matches the heading line that starts a knowledge base entry.
+var scanHeadingRe = regexp.MustCompile(`(?m)^### Scan:[ \t]+(\S+)[ \t\r]*$`)
 
-	t, err := time.Parse(time.RFC3339, timestamp)
-	if err != nil {
-		return false
-	}
-
-	return t.Before(cutoff)
+type scanBoundary struct {
+	start     int
+	timestamp time.Time
 }
 
-func extractEntryTimestamp(entry string) string {
-	for _, line := range strings.Split(entry, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "### Scan:") {
-			return strings.TrimSpace(strings.TrimPrefix(trimmed, "### Scan:"))
+// scanBoundaries returns the entry boundaries in s: heading lines whose
+// timestamp parses as RFC3339. Other "### Scan:" lines are ordinary text.
+func scanBoundaries(s string) []scanBoundary {
+	var boundaries []scanBoundary
+	for _, m := range scanHeadingRe.FindAllStringSubmatchIndex(s, -1) {
+		ts, err := time.Parse(time.RFC3339, s[m[2]:m[3]])
+		if err != nil {
+			continue
 		}
+		boundaries = append(boundaries, scanBoundary{start: m[0], timestamp: ts})
 	}
-	return ""
+	return boundaries
+}
+
+// splitEntries splits the entries section into entries. An entry starts at a
+// timestamped scan heading and runs to the next one, so "---" lines inside an
+// analysis do not split it. Blank lines directly before a heading belong to
+// that entry; any other text before the first heading is dropped.
+func splitEntries(entriesSection string) []string {
+	boundaries := scanBoundaries(entriesSection)
+	entries := make([]string, 0, len(boundaries))
+	starts := make([]int, len(boundaries))
+	for i, b := range boundaries {
+		starts[i] = includeLeadingBlankLines(entriesSection, b.start)
+	}
+	for i, start := range starts {
+		end := len(entriesSection)
+		if i+1 < len(starts) {
+			end = starts[i+1]
+		}
+		entries = append(entries, entriesSection[start:end])
+	}
+	return entries
+}
+
+// includeLeadingBlankLines moves pos, the start of a line, back over any
+// whitespace-only lines directly before it.
+func includeLeadingBlankLines(s string, pos int) int {
+	for pos > 0 {
+		prevStart := strings.LastIndex(s[:pos-1], "\n") + 1
+		if strings.TrimSpace(s[prevStart:pos-1]) != "" {
+			break
+		}
+		pos = prevStart
+	}
+	return pos
+}
+
+func isEntryExpired(entry string, cutoff time.Time) bool {
+	boundaries := scanBoundaries(entry)
+	if len(boundaries) == 0 {
+		return false
+	}
+
+	return boundaries[0].timestamp.Before(cutoff)
 }

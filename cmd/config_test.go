@@ -2,12 +2,15 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/zorak1103/dlia/internal/config"
 )
 
@@ -375,7 +378,9 @@ func TestDisplayPromptPaths_MixedConfiguration(t *testing.T) {
 }
 
 func TestValidateConfigOrExit_NilConfig(t *testing.T) {
-	t.Parallel()
+	original := errConfigLoad
+	t.Cleanup(func() { errConfigLoad = original })
+	errConfigLoad = nil
 
 	err := validateConfigOrExit(nil, "test")
 
@@ -385,6 +390,53 @@ func TestValidateConfigOrExit_NilConfig(t *testing.T) {
 	assert.Contains(t, err.Error(), "Run 'dlia init'")
 }
 
+func TestValidateConfigOrExit_NilConfigWithLoadError(t *testing.T) {
+	original := errConfigLoad
+	t.Cleanup(func() { errConfigLoad = original })
+	errConfigLoad = errors.New("llm.context_window must be at least 5625, got 4000")
+
+	err := validateConfigOrExit(nil, "test")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "llm.context_window must be at least 5625, got 4000")
+	assert.NotContains(t, err.Error(), "has not been initialized")
+	assert.ErrorIs(t, err, errConfigLoad)
+}
+
+func TestValidateConfigOrExit_NilConfigNoConfigFileKeepsInitHint(t *testing.T) {
+	original := errConfigLoad
+	t.Cleanup(func() { errConfigLoad = original })
+	t.Chdir(t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DLIA_LLM_API_KEY", "")
+	_, loadErr := config.Load("")
+	require.Error(t, loadErr)
+	errConfigLoad = loadErr
+
+	err := validateConfigOrExit(nil, "test")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), loadErr.Error())
+	assert.Contains(t, err.Error(), "Run 'dlia init' to set up DLIA and create the necessary configuration")
+	assert.ErrorIs(t, err, errConfigLoad)
+}
+
+func TestValidateConfigOrExit_NilConfigWithConfigFileHasNoInitHint(t *testing.T) {
+	original := errConfigLoad
+	t.Cleanup(func() { errConfigLoad = original })
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("llm:\n  api_key: k\n  context_window: 4000\n"), 0o600))
+	_, loadErr := config.Load(path)
+	require.Error(t, loadErr)
+	errConfigLoad = loadErr
+
+	err := validateConfigOrExit(nil, "test")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), loadErr.Error())
+	assert.NotContains(t, err.Error(), "dlia init")
+	assert.ErrorIs(t, err, errConfigLoad)
+}
 func TestValidateConfigOrExit_NoConfigFile(t *testing.T) {
 	// Create a temporary directory with required directories
 	tmpDir := t.TempDir()
@@ -583,11 +635,13 @@ func TestConfigCmd_OutputsKnowledgeRetentionDays(t *testing.T) {
 	testCfg := &config.Config{
 		ConfigFilePath: configFile,
 		LLM: config.LLMConfig{
-			BaseURL:   "https://api.example.com/v1",
-			APIKey:    "sk-test-key-1234567890",
-			Model:     "gpt-4",
-			MaxTokens: 8000,
+			BaseURL:               "https://api.example.com/v1",
+			APIKey:                "sk-test-key-1234567890",
+			Model:                 "gpt-4",
+			ContextWindow:         8000,
+			MaxChunksPerContainer: 7,
 		},
+		Scan: config.ScanConfig{MaxWindow: 36 * time.Hour},
 		Docker: config.DockerConfig{
 			SocketPath: "unix:///var/run/docker.sock",
 		},
@@ -634,4 +688,8 @@ func TestConfigCmd_OutputsKnowledgeRetentionDays(t *testing.T) {
 	// Assert: Check that knowledge_retention_days is in the output
 	assert.Contains(t, output, "Knowledge Retention:", "Output should contain 'Knowledge Retention:' label")
 	assert.Contains(t, output, "45 days", "Output should contain the configured value '45 days'")
+	assert.Regexp(t, `Context Window:\s+8000`, output)
+	assert.Regexp(t, `Max Chunks:\s+7`, output)
+	assert.Regexp(t, `Max Window:\s+36h0m0s`, output)
+	assert.NotContains(t, output, "Max Tokens")
 }

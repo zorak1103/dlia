@@ -37,7 +37,9 @@ func TestConfigYAML_ContainsLLMFields(t *testing.T) {
 		"base_url:",
 		"api_key:",
 		"model:",
-		"max_tokens:",
+		"context_window:",
+		"max_chunks_per_container:",
+		"max_window:",
 	}
 
 	for _, field := range expectedFields {

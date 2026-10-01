@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -40,7 +42,7 @@ func TestLoad_Defaults(t *testing.T) {
 	// Check defaults
 	assert.Equal(t, "https://api.openai.com/v1", cfg.LLM.BaseURL)
 	assert.Equal(t, "gpt-4o-mini", cfg.LLM.Model)
-	assert.Equal(t, 128000, cfg.LLM.MaxTokens)
+	assert.Equal(t, 128000, cfg.LLM.ContextWindow)
 	assert.Equal(t, "./reports", cfg.Output.ReportsDir)
 	assert.Equal(t, "./knowledge_base", cfg.Output.KnowledgeBaseDir)
 	assert.Equal(t, "./state.json", cfg.Output.StateFile)
@@ -59,7 +61,7 @@ func TestLoad_ConfigFile(t *testing.T) {
   api_key: file-api-key
   model: file-model
   base_url: https://test.example.com
-  max_tokens: 50000
+  context_window: 50000
 docker:
   socket_path: unix:///test/docker.sock
 notification:
@@ -84,7 +86,7 @@ privacy:
 	assert.Equal(t, "file-api-key", cfg.LLM.APIKey)
 	assert.Equal(t, "file-model", cfg.LLM.Model)
 	assert.Equal(t, "https://test.example.com", cfg.LLM.BaseURL)
-	assert.Equal(t, 50000, cfg.LLM.MaxTokens)
+	assert.Equal(t, 50000, cfg.LLM.ContextWindow)
 	assert.Equal(t, "unix:///test/docker.sock", cfg.Docker.SocketPath)
 	assert.True(t, cfg.Notification.Enabled)
 	assert.Equal(t, "generic://test", cfg.Notification.ShoutrrURL)
@@ -303,10 +305,13 @@ func TestValidate_InvalidRetentionDaysTooHigh(t *testing.T) {
 
 func TestValidate_ValidConfig(t *testing.T) {
 	cfg := &Config{
+		Scan: ScanConfig{MaxWindow: 24 * time.Hour},
 		LLM: LLMConfig{
-			BaseURL: "https://test.com",
-			APIKey:  "test",
-			Model:   "test",
+			BaseURL:               "https://test.com",
+			APIKey:                "test",
+			Model:                 "test",
+			ContextWindow:         DefaultContextWindow,
+			MaxChunksPerContainer: 10,
 		},
 		Docker: DockerConfig{SocketPath: "test"},
 		Output: OutputConfig{
@@ -444,7 +449,8 @@ func TestErr_ErrorVariable(t *testing.T) {
 
 func TestValidate_InvalidRegexpPattern(t *testing.T) {
 	cfg := &Config{
-		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test"},
+		Scan:   ScanConfig{MaxWindow: 24 * time.Hour},
+		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10},
 		Docker: DockerConfig{SocketPath: "test"},
 		Output: OutputConfig{
 			ReportsDir:             "test",
@@ -467,7 +473,8 @@ func TestValidate_InvalidRegexpPattern(t *testing.T) {
 
 func TestValidate_DisabledRegexpFilter_NotValidated(t *testing.T) {
 	cfg := &Config{
-		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test"},
+		Scan:   ScanConfig{MaxWindow: 24 * time.Hour},
+		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10},
 		Docker: DockerConfig{SocketPath: "test"},
 		Output: OutputConfig{
 			ReportsDir:             "test",
@@ -568,12 +575,34 @@ func TestLoad_ValidationErrorWithoutConfigFile(t *testing.T) {
 	assert.Contains(t, err.Error(), "(using defaults and environment variables)")
 }
 
+func TestLoad_ValidationErrorWithoutConfigFileIsErrNoConfigFile(t *testing.T) {
+	t.Setenv("DLIA_LLM_API_KEY", "")
+
+	_, err := Load("")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoConfigFile)
+	assert.Contains(t, err.Error(), "config validation failed")
+}
+
+func TestLoad_ValidationErrorWithConfigFileIsNotErrNoConfigFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("llm:\n  api_key: k\n  context_window: 4000\n"), 0o600))
+
+	_, err := Load(path)
+
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrNoConfigFile)
+	assert.Contains(t, err.Error(), "config validation failed")
+}
+
 // TestValidate_RetentionBoundaryValues pins the inclusive retention bounds:
 // 1 and 365 are valid, 0 and 366 are not.
 func TestValidate_RetentionBoundaryValues(t *testing.T) {
 	base := func(retention int) *Config {
 		return &Config{
-			LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test"},
+			Scan:   ScanConfig{MaxWindow: 24 * time.Hour},
+			LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10},
 			Docker: DockerConfig{SocketPath: "test"},
 			Output: OutputConfig{
 				ReportsDir:             "test",
@@ -655,5 +684,209 @@ func TestSetDefaults_PlatformSocketDefault(t *testing.T) {
 		assert.Equal(t, "unix:///var/run/docker.sock", got)
 	} else {
 		assert.Equal(t, "npipe:////./pipe/docker_engine", got)
+	}
+}
+
+func TestLoad_ReliabilityDefaults(t *testing.T) {
+	t.Setenv("DLIA_LLM_API_KEY", "test-key")
+	t.Setenv("DLIA_LLM_CONTEXT_WINDOW", "")
+	t.Setenv("DLIA_LLM_MAX_TOKENS", "")
+
+	cfg, err := Load("")
+	require.NoError(t, err)
+
+	assert.Equal(t, 24*time.Hour, cfg.Scan.MaxWindow)
+	assert.Equal(t, 10, cfg.LLM.MaxChunksPerContainer)
+	assert.Equal(t, 128000, cfg.LLM.ContextWindow)
+	assert.Empty(t, cfg.Warnings)
+}
+
+func TestLoad_ContextWindowAlias(t *testing.T) {
+	const deprecated = "llm.max_tokens is deprecated"
+
+	tests := []struct {
+		name         string
+		yaml         string
+		env          map[string]string
+		wantWindow   int
+		wantWarnings int
+		wantIgnored  bool
+	}{
+		{
+			name:         "yaml max_tokens only",
+			yaml:         "  max_tokens: 50000\n",
+			wantWindow:   50000,
+			wantWarnings: 1,
+		},
+		{
+			name:         "env max_tokens only",
+			env:          map[string]string{"DLIA_LLM_MAX_TOKENS": "50000"},
+			wantWindow:   50000,
+			wantWarnings: 1,
+		},
+		{
+			name:         "yaml both",
+			yaml:         "  context_window: 64000\n  max_tokens: 50000\n",
+			wantWindow:   64000,
+			wantWarnings: 1,
+			wantIgnored:  true,
+		},
+		{
+			name:         "env context_window and yaml max_tokens",
+			yaml:         "  max_tokens: 50000\n",
+			env:          map[string]string{"DLIA_LLM_CONTEXT_WINDOW": "64000"},
+			wantWindow:   64000,
+			wantWarnings: 1,
+			wantIgnored:  true,
+		},
+		{
+			name:       "context_window only",
+			yaml:       "  context_window: 64000\n",
+			wantWindow: 64000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DLIA_LLM_API_KEY", "test-key")
+			t.Setenv("DLIA_LLM_CONTEXT_WINDOW", "")
+			t.Setenv("DLIA_LLM_MAX_TOKENS", "")
+			for k, val := range tt.env {
+				t.Setenv(k, val)
+			}
+
+			configPath := filepath.Join(t.TempDir(), "config.yaml")
+			content := "llm:\n  api_key: test-key\n" + tt.yaml
+			require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
+
+			cfg, err := Load(configPath)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantWindow, cfg.LLM.ContextWindow)
+			require.Len(t, cfg.Warnings, tt.wantWarnings)
+			if tt.wantWarnings == 0 {
+				return
+			}
+			assert.Contains(t, cfg.Warnings[0], deprecated)
+			assert.Contains(t, cfg.Warnings[0], "use llm.context_window instead")
+			assert.Equal(t, tt.wantIgnored, strings.Contains(cfg.Warnings[0], "ignored because llm.context_window is set"))
+		})
+	}
+}
+
+func TestLoad_ScanMaxWindowFromEnv(t *testing.T) {
+	t.Setenv("DLIA_LLM_API_KEY", "test-key")
+	t.Setenv("DLIA_SCAN_MAX_WINDOW", "6h")
+
+	cfg, err := Load("")
+	require.NoError(t, err)
+	assert.Equal(t, 6*time.Hour, cfg.Scan.MaxWindow)
+}
+
+func TestLoad_ScanMaxWindowFromYAML(t *testing.T) {
+	t.Setenv("DLIA_LLM_API_KEY", "test-key")
+	t.Setenv("DLIA_SCAN_MAX_WINDOW", "")
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte("scan:\n  max_window: \"90m\"\n"), 0600))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, 90*time.Minute, cfg.Scan.MaxWindow)
+}
+
+func TestLoadFromViper_ResolvesContextWindow(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "")
+	t.Setenv("DLIA_LLM_CONTEXT_WINDOW", "")
+	t.Setenv("DLIA_LLM_MAX_TOKENS", "")
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("llm.api_key", "test-key")
+	viper.Set("llm.max_tokens", 40000)
+
+	cfg, err := LoadFromViper()
+	require.NoError(t, err)
+	assert.Equal(t, 40000, cfg.LLM.ContextWindow)
+	require.Len(t, cfg.Warnings, 1)
+	assert.Contains(t, cfg.Warnings[0], "llm.max_tokens is deprecated")
+}
+
+func TestLoadFromViper_SmallAliasErrorMentionsMaxTokens(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "")
+	t.Setenv("DLIA_LLM_CONTEXT_WINDOW", "")
+	t.Setenv("DLIA_LLM_MAX_TOKENS", "")
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("llm.api_key", "test-key")
+	viper.Set("llm.max_tokens", 4000)
+
+	_, err := LoadFromViper()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "llm.context_window (set via deprecated llm.max_tokens=4000) must be at least 5625, got 4000")
+}
+
+func TestLoadFromViper_SmallContextWindowErrorHasNoAliasHint(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "")
+	t.Setenv("DLIA_LLM_CONTEXT_WINDOW", "")
+	t.Setenv("DLIA_LLM_MAX_TOKENS", "")
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("llm.api_key", "test-key")
+	viper.Set("llm.context_window", 4000)
+
+	_, err := LoadFromViper()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "llm.context_window must be at least 5625, got 4000")
+	assert.NotContains(t, err.Error(), "deprecated")
+}
+
+func TestValidate_ReliabilityRanges(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(c *Config)
+		wantErr string
+	}{
+		{"max_window zero", func(c *Config) { c.Scan.MaxWindow = 0 }, "scan.max_window"},
+		{"max_window negative", func(c *Config) { c.Scan.MaxWindow = -time.Hour }, "scan.max_window"},
+		{"max_chunks zero", func(c *Config) { c.LLM.MaxChunksPerContainer = 0 }, "llm.max_chunks_per_container"},
+		{"context_window below minimum", func(c *Config) { c.LLM.ContextWindow = MinContextWindow - 1 }, "llm.context_window"},
+		{"context_window at minimum", func(c *Config) { c.LLM.ContextWindow = MinContextWindow }, ""},
+		{"max_chunks one", func(c *Config) { c.LLM.MaxChunksPerContainer = 1 }, ""},
+		{"max_window bare number 3600 (3.6us)", func(c *Config) { c.Scan.MaxWindow = 3600 }, `use a quoted duration like "24h"`},
+		{"max_window one nanosecond", func(c *Config) { c.Scan.MaxWindow = time.Nanosecond }, "scan.max_window"},
+		{"max_window just below one minute", func(c *Config) { c.Scan.MaxWindow = time.Minute - 1 }, "scan.max_window"},
+		{"max_window one minute", func(c *Config) { c.Scan.MaxWindow = time.Minute }, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validReliabilityConfig()
+			tt.mutate(cfg)
+
+			err := cfg.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func validReliabilityConfig() *Config {
+	return &Config{
+		Scan:   ScanConfig{MaxWindow: 24 * time.Hour},
+		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10},
+		Docker: DockerConfig{SocketPath: "test"},
+		Output: OutputConfig{
+			ReportsDir:             "test",
+			KnowledgeBaseDir:       "test",
+			StateFile:              "test",
+			KnowledgeRetentionDays: 30,
+		},
 	}
 }

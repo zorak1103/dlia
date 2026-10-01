@@ -74,7 +74,11 @@ if (Docker connection OK?) then (yes)
                 :Save report to reports/;
                 :Update service knowledge base;
                 :Collect for global summary;
-                :Update state with latest timestamp;
+                if (Analysis succeeded?) then (yes)
+                    :Update state with latest timestamp;
+                else (no)
+                    :Keep cursor (retry next scan);
+                endif
             else (no)
                 :Log "No new logs";
             endif

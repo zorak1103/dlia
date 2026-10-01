@@ -224,9 +224,24 @@ func displayNoContainersFound(scanCfg *scanConfig) {
 	}
 }
 
+// nowFunc is the clock used for scan windows; tests replace it.
+var nowFunc = time.Now
+
 type scanStats struct {
 	totalLogs         int
 	scannedContainers int
+	failedContainers  int
+}
+
+// logGap describes a stretch of logs that was skipped because the saved cursor
+// was older than scan.max_window.
+type logGap struct {
+	start, end time.Time
+}
+
+func (g logGap) note(maxWindow time.Duration) string {
+	return fmt.Sprintf("Skipped log gap %s – %s (older than scan.max_window=%s)",
+		g.start.UTC().Format(time.RFC3339), g.end.UTC().Format(time.RFC3339), maxWindow)
 }
 
 func processContainers(ctx context.Context, dockerClient docker.Client, st *state.State, containers []docker.Container, cfg *config.Config, scanCfg *scanConfig, lookbackDuration time.Duration) (map[string]*chunking.AnalyzeResult, scanStats) {
@@ -239,55 +254,120 @@ func processContainers(ctx context.Context, dockerClient docker.Client, st *stat
 	for i, container := range containers {
 		fmt.Printf("[%d/%d] Processing: %s (ID: %s)\n", i+1, len(containers), container.Name, container.ID[:12])
 
-		since := determineLogStartTime(st, container.ID, scanCfg, lookbackDuration)
-
-		logs, err := processContainerLogs(ctx, dockerClient, container.ID, since)
-		if err != nil {
-			fmt.Printf("        ⚠️  %v\n", err)
-			continue
-		}
-
-		if len(logs) == 0 {
-			fmt.Printf("        ℹ️  No new logs\n\n")
-			continue
-		}
-
-		fmt.Printf("        📝 Found %d new log entries\n", len(logs))
-		stats.totalLogs += len(logs)
-
-		displayLogsPreview(logs, scanCfg)
-
-		result := processLLMAnalysis(ctx, container.Name, logs, cfg, scanCfg, &llmPipeline)
+		result := processSingleContainer(ctx, dockerClient, st, container, cfg, scanCfg, lookbackDuration, &llmPipeline, &stats)
 		if result != nil {
-			handleReportingAndKnowledge(container.Name, result, logs, cfg, scanCfg)
-
 			globalResults[container.Name] = result
 		}
-
-		updateContainerState(st, container, logs, scanCfg, lookbackDuration)
-
-		stats.scannedContainers++
-		fmt.Println()
 	}
 
 	return globalResults, stats
 }
 
-func determineLogStartTime(st *state.State, containerID string, scanCfg *scanConfig, lookbackDuration time.Duration) time.Time {
+// processSingleContainer scans one container and returns its analysis result (nil if
+// none). The state cursor only advances after a successful analysis, so failed
+// analyses are retried on the next scan.
+func processSingleContainer(ctx context.Context, dockerClient docker.Client, st *state.State, container docker.Container, cfg *config.Config, scanCfg *scanConfig, lookbackDuration time.Duration, llmPipeline **chunking.Pipeline, stats *scanStats) *chunking.AnalyzeResult {
+	now := nowFunc()
+	since, gap := determineLogStartTime(st, container.ID, scanCfg, lookbackDuration, cfg.Scan.MaxWindow, now)
+
+	logs, err := processContainerLogs(ctx, dockerClient, container.ID, since)
+	if err != nil {
+		fmt.Printf("        ⚠️  %v\n", err)
+		return nil
+	}
+
+	if len(logs) == 0 {
+		recordEmptyRead(st, container, gap, now, cfg, scanCfg, lookbackDuration)
+		fmt.Printf("        ℹ️  No new logs\n\n")
+		return nil
+	}
+
+	var gapNote string
+	if gap != nil {
+		gapNote = gap.note(cfg.Scan.MaxWindow)
+		fmt.Printf("        ⚠️  %s\n", gapNote)
+	}
+
+	fmt.Printf("        📝 Found %d new log entries\n", len(logs))
+	stats.totalLogs += len(logs)
+
+	displayLogsPreview(logs, scanCfg)
+
+	result := processLLMAnalysis(ctx, container.Name, logs, cfg, scanCfg, llmPipeline)
+	switch {
+	case result != nil:
+		for _, note := range result.CoverageNotes {
+			fmt.Printf("        ⚠️  %s\n", note)
+		}
+		if gapNote != "" {
+			result.CoverageNotes = append(result.CoverageNotes, gapNote)
+		}
+		handleReportingAndKnowledge(container.Name, result, logs, cfg, scanCfg)
+		updateContainerState(st, container, logs, scanCfg, lookbackDuration)
+	case scanCfg.dryRun:
+		updateContainerState(st, container, logs, scanCfg, lookbackDuration)
+	default:
+		keepWindowOnFailure(st, container, since, scanCfg, lookbackDuration)
+		stats.failedContainers++
+	}
+
+	stats.scannedContainers++
+	fmt.Println()
+	return result
+}
+
+// emptyReadCursorMargin tolerates daemon/host clock skew; a line inside the margin may be read twice.
+const emptyReadCursorMargin = 5 * time.Second
+
+// recordEmptyRead handles a successful read that returned no logs. It reports a
+// max_window gap (once, because the cursor moves past it) and advances the cursor
+// to just before the read time (see emptyReadCursorMargin, never moving it
+// backwards), so a quiet container neither drifts past max_window nor re-reports
+// the gap on every scan. Dry runs and lookback scans leave state alone.
+func recordEmptyRead(st *state.State, container docker.Container, gap *logGap, now time.Time, cfg *config.Config, scanCfg *scanConfig, lookbackDuration time.Duration) {
+	if scanCfg.dryRun || lookbackDuration != 0 {
+		return
+	}
+	if gap != nil {
+		fmt.Printf("        ⚠️  %s\n", gap.note(cfg.Scan.MaxWindow))
+	}
+	cursor := now.Add(-emptyReadCursorMargin)
+	if existing, ok := st.GetLastScan(container.ID); ok && existing.After(cursor) {
+		cursor = existing
+	}
+	st.UpdateContainer(container.ID, container.Name, cursor, "")
+}
+
+// keepWindowOnFailure records the scan start as the cursor of a container that has
+// none yet, so a failed first analysis is retried from the same window instead of
+// a fresh "last hour".
+func keepWindowOnFailure(st *state.State, container docker.Container, since time.Time, scanCfg *scanConfig, lookbackDuration time.Duration) {
+	if scanCfg.dryRun || lookbackDuration != 0 {
+		return
+	}
+	if _, exists := st.GetLastScan(container.ID); !exists {
+		st.UpdateContainer(container.ID, container.Name, since, "")
+	}
+}
+
+func determineLogStartTime(st *state.State, containerID string, scanCfg *scanConfig, lookbackDuration, maxWindow time.Duration, now time.Time) (time.Time, *logGap) {
 	if lookbackDuration > 0 {
-		since := time.Now().Add(-lookbackDuration)
+		since := now.Add(-lookbackDuration)
 		if scanCfg.verbose {
 			fmt.Printf("        Reading logs from: %s (lookback: %s)\n", since.Format(time.RFC3339), scanCfg.lookback)
 		}
-		return since
+		return since, nil
 	}
 
 	// Use state
 	if lastScan, exists := st.GetLastScan(containerID); exists {
+		if floor := now.Add(-maxWindow); maxWindow > 0 && lastScan.Before(floor) {
+			return floor, &logGap{start: lastScan, end: floor}
+		}
 		if scanCfg.verbose {
 			fmt.Printf("        Reading logs since: %s (from state)\n", lastScan.Format(time.RFC3339))
 		}
-		return lastScan
+		return lastScan, nil
 	}
 
 	// First scan of this container: default to last 1 hour to prevent overwhelming
@@ -295,11 +375,11 @@ func determineLogStartTime(st *state.State, containerID string, scanCfg *scanCon
 	// Rationale: 1 hour balances between meaningful recent context and manageable
 	// data volume (typical container generates 100-1000 log lines/hour).
 	// After the first scan, subsequent runs process only new logs incrementally.
-	since := time.Now().Add(-1 * time.Hour)
+	since := now.Add(-1 * time.Hour)
 	if scanCfg.verbose {
 		fmt.Printf("        First scan, reading logs from: %s (last 1 hour)\n", since.Format(time.RFC3339))
 	}
-	return since
+	return since, nil
 }
 
 func displayLogsPreview(logs []docker.LogEntry, scanCfg *scanConfig) {
@@ -437,6 +517,9 @@ func displayScanSummary(stats scanStats, scanCfg *scanConfig, lookbackDuration t
 	fmt.Printf("✅ Scan complete!\n")
 	fmt.Printf("   Containers scanned: %d\n", stats.scannedContainers)
 	fmt.Printf("   Total log entries: %d\n", stats.totalLogs)
+	if stats.failedContainers > 0 {
+		fmt.Printf("   Failed analyses: %d (will be retried next scan)\n", stats.failedContainers)
+	}
 
 	switch {
 	case scanCfg.dryRun:

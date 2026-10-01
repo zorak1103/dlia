@@ -316,3 +316,27 @@ func TestTokenizerConsistency(t *testing.T) {
 		}
 	}
 }
+
+func TestTokenizer_IsEstimate(t *testing.T) {
+	tests := []struct {
+		model string
+		want  bool
+	}{
+		{"gpt-4", false},
+		{"gpt-4o-mini", false},
+		{"unknown-model", true},
+		{"", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			tokenizer, err := NewTokenizer(tt.model)
+			if err != nil {
+				t.Fatalf("NewTokenizer(%q) error: %v", tt.model, err)
+			}
+			if got := tokenizer.IsEstimate(); got != tt.want {
+				t.Errorf("IsEstimate() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -141,7 +141,9 @@ loop for each Container
         knowledge --> scan : OK
         deactivate knowledge
         
-        scan -> state : UpdateContainer(id, name, latestTime, "")
+        opt analysis succeeded
+            scan -> state : UpdateContainer(id, name, latestTime, "")
+        end
     end
 end
 
