@@ -78,6 +78,9 @@ func TestProcessContainers_ReadErrorNoGapNoStateChange(t *testing.T) {
 	}
 }
 
+// emptyReadMarginForTest pins the documented 5s overlap independently of the production constant.
+const emptyReadMarginForTest = 5 * time.Second
+
 // withClock swaps nowFunc for a controllable clock so tests never depend on wall-clock progress.
 func withClock(t *testing.T, start time.Time) *time.Time {
 	t.Helper()
@@ -110,8 +113,8 @@ func TestProcessContainers_EmptyReadGapPrintedOnceAndCursorFollowsReadTime(t *te
 	if !strings.Contains(out, "No new logs") {
 		t.Errorf("Expected 'No new logs':\n%s", out)
 	}
-	if got, _ := st.GetLastScan(retryContainerID); !got.Equal(t1) {
-		t.Errorf("Cursor = %v, want %v", got, t1)
+	if got, _ := st.GetLastScan(retryContainerID); !got.Equal(t1.Add(-emptyReadMarginForTest)) {
+		t.Errorf("Cursor = %v, want %v", got, t1.Add(-emptyReadMarginForTest))
 	}
 
 	t2 := t1.Add(time.Hour)
@@ -120,8 +123,8 @@ func TestProcessContainers_EmptyReadGapPrintedOnceAndCursorFollowsReadTime(t *te
 	if strings.Contains(out, "Skipped log gap") {
 		t.Errorf("Second scan must not print gap:\n%s", out)
 	}
-	if got, _ := st.GetLastScan(retryContainerID); !got.Equal(t2) {
-		t.Errorf("Cursor = %v, want %v", got, t2)
+	if got, _ := st.GetLastScan(retryContainerID); !got.Equal(t2.Add(-emptyReadMarginForTest)) {
+		t.Errorf("Cursor = %v, want %v", got, t2.Add(-emptyReadMarginForTest))
 	}
 }
 
@@ -138,8 +141,24 @@ func TestProcessContainers_EmptyReadWithinWindowAdvancesCursor(t *testing.T) {
 	if strings.Contains(out, "Skipped log gap") {
 		t.Errorf("No gap expected within window:\n%s", out)
 	}
-	if got, _ := st.GetLastScan(retryContainerID); !got.Equal(t1) {
-		t.Errorf("Cursor = %v, want %v", got, t1)
+	if got, _ := st.GetLastScan(retryContainerID); !got.Equal(t1.Add(-emptyReadMarginForTest)) {
+		t.Errorf("Cursor = %v, want %v", got, t1.Add(-emptyReadMarginForTest))
+	}
+}
+
+func TestProcessContainers_EmptyReadNeverMovesCursorBackwards(t *testing.T) {
+	t1 := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	withClock(t, t1)
+	existing := t1.Add(-2 * time.Second)
+	st, mockDocker, containers, c := retryTestEnv(t, existing)
+	mockDocker.logs = nil
+	scanCfg := newTestScanConfig()
+	scanCfg.dryRun = false
+
+	scanEmpty(t, st, mockDocker, containers, c, scanCfg, 0)
+
+	if got, _ := st.GetLastScan(retryContainerID); !got.Equal(existing) {
+		t.Errorf("Cursor = %v, want unchanged %v", got, existing)
 	}
 }
 
@@ -157,8 +176,8 @@ func TestProcessContainers_EmptyReadWithoutCursorSetsCursor(t *testing.T) {
 	if strings.Contains(out, "Skipped log gap") {
 		t.Errorf("No gap expected without cursor:\n%s", out)
 	}
-	if got, ok := st.GetLastScan(retryContainerID); !ok || !got.Equal(t1) {
-		t.Errorf("Cursor = %v (exists=%v), want %v", got, ok, t1)
+	if got, ok := st.GetLastScan(retryContainerID); !ok || !got.Equal(t1.Add(-emptyReadMarginForTest)) {
+		t.Errorf("Cursor = %v (exists=%v), want %v", got, ok, t1.Add(-emptyReadMarginForTest))
 	}
 }
 

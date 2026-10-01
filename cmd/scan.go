@@ -316,10 +316,14 @@ func processSingleContainer(ctx context.Context, dockerClient docker.Client, st 
 	return result
 }
 
+// emptyReadCursorMargin tolerates daemon/host clock skew; a line inside the margin may be read twice.
+const emptyReadCursorMargin = 5 * time.Second
+
 // recordEmptyRead handles a successful read that returned no logs. It reports a
 // max_window gap (once, because the cursor moves past it) and advances the cursor
-// to the read time, so a quiet container neither drifts past max_window nor
-// re-reports the gap on every scan. Dry runs and lookback scans leave state alone.
+// to just before the read time (see emptyReadCursorMargin, never moving it
+// backwards), so a quiet container neither drifts past max_window nor re-reports
+// the gap on every scan. Dry runs and lookback scans leave state alone.
 func recordEmptyRead(st *state.State, container docker.Container, gap *logGap, now time.Time, cfg *config.Config, scanCfg *scanConfig, lookbackDuration time.Duration) {
 	if scanCfg.dryRun || lookbackDuration != 0 {
 		return
@@ -327,7 +331,11 @@ func recordEmptyRead(st *state.State, container docker.Container, gap *logGap, n
 	if gap != nil {
 		fmt.Printf("        ⚠️  %s\n", gap.note(cfg.Scan.MaxWindow))
 	}
-	st.UpdateContainer(container.ID, container.Name, now, "")
+	cursor := now.Add(-emptyReadCursorMargin)
+	if existing, ok := st.GetLastScan(container.ID); ok && existing.After(cursor) {
+		cursor = existing
+	}
+	st.UpdateContainer(container.ID, container.Name, cursor, "")
 }
 
 // keepWindowOnFailure records the scan start as the cursor of a container that has
