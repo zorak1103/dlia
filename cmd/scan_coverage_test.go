@@ -3,7 +3,10 @@ package cmd
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -638,5 +641,112 @@ func TestSendNotificationIfNeeded_VerboseMode(t *testing.T) {
 
 	if err != nil {
 		t.Errorf("Expected no error when notifications disabled, got: %v", err)
+	}
+}
+
+const retryContainerID = "abc123def456abc123def456abc123def456abc123def456abc123def456abc9"
+
+// retryTestEnv builds a state with a cursor, a mock docker with fixed logs and a config
+// pointing at temp dirs, for the cursor-on-success tests.
+func retryTestEnv(t *testing.T, cursor time.Time) (*state.State, *MockDockerClient, []docker.Container, *config.Config) {
+	t.Helper()
+	tmpDir := t.TempDir()
+
+	st, err := state.Load(filepath.Join(tmpDir, "state.json"))
+	if err != nil {
+		t.Fatalf("Failed to load state: %v", err)
+	}
+	containers := []docker.Container{{ID: retryContainerID, Name: "retry-svc", State: "running"}}
+	st.UpdateContainer(retryContainerID, "retry-svc", cursor, "")
+
+	mockDocker := &MockDockerClient{
+		containers: containers,
+		logs: map[string][]docker.LogEntry{
+			retryContainerID: {
+				{Timestamp: "2026-01-01T10:00:00Z", Stream: "stdout", Message: "one"},
+				{Timestamp: "2026-01-01T10:00:05Z", Stream: "stdout", Message: "two"},
+			},
+		},
+	}
+	c := &config.Config{
+		LLM: config.LLMConfig{APIKey: "k", Model: "m", BaseURL: "http://test", ContextWindow: 4000},
+		Output: config.OutputConfig{
+			ReportsDir:       filepath.Join(tmpDir, "reports"),
+			KnowledgeBaseDir: filepath.Join(tmpDir, "kb"),
+		},
+		Scan: config.ScanConfig{MaxWindow: 24 * time.Hour},
+	}
+	_ = os.MkdirAll(c.Output.ReportsDir, 0o750)
+	_ = os.MkdirAll(filepath.Join(c.Output.KnowledgeBaseDir, "services"), 0o750)
+	return st, mockDocker, containers, c
+}
+
+func TestProcessContainers_FailedAnalysisKeepsCursor(t *testing.T) {
+	withScanLLMMock(t, &fakeScanLLM{analysis: "x", failAll: true})
+	t0 := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	st, mockDocker, containers, c := retryTestEnv(t, t0)
+	scanCfg := newTestScanConfig()
+	scanCfg.dryRun = false
+
+	results, stats := processContainers(context.Background(), mockDocker, st, containers, c, scanCfg, 0)
+
+	if got, _ := st.GetLastScan(retryContainerID); !got.Equal(t0) {
+		t.Errorf("Cursor moved to %v, want %v", got, t0)
+	}
+	if stats.failedContainers != 1 {
+		t.Errorf("Expected 1 failed container, got %d", stats.failedContainers)
+	}
+	if _, ok := results["retry-svc"]; ok {
+		t.Error("Failed result must not be in globalResults")
+	}
+}
+
+func TestProcessContainers_SuccessAdvancesCursorAndAddsGapNote(t *testing.T) {
+	withScanLLMMock(t, &fakeScanLLM{analysis: "all good"})
+	oldCursor := time.Now().Add(-48 * time.Hour)
+	st, mockDocker, containers, c := retryTestEnv(t, oldCursor)
+	scanCfg := newTestScanConfig()
+	scanCfg.dryRun = false
+	read := captureStdout(t)
+
+	results, stats := processContainers(context.Background(), mockDocker, st, containers, c, scanCfg, 0)
+	out := read()
+
+	want := time.Date(2026, 1, 1, 10, 0, 5, 0, time.UTC)
+	if got, _ := st.GetLastScan(retryContainerID); !got.Equal(want) {
+		t.Errorf("Cursor = %v, want %v", got, want)
+	}
+	if stats.failedContainers != 0 {
+		t.Errorf("Expected no failures, got %d", stats.failedContainers)
+	}
+	res := results["retry-svc"]
+	if res == nil {
+		t.Fatal("Expected result in globalResults")
+	}
+	gapNotes := 0
+	for _, n := range res.CoverageNotes {
+		if strings.HasPrefix(n, "Skipped log gap ") && strings.Contains(n, "scan.max_window=24h0m0s") {
+			gapNotes++
+		}
+	}
+	if gapNotes != 1 {
+		t.Errorf("Expected exactly one gap note, got %d in %v", gapNotes, res.CoverageNotes)
+	}
+	if n := strings.Count(out, "Skipped log gap"); n != 1 {
+		t.Errorf("Expected gap printed once, got %d:\n%s", n, out)
+	}
+
+	found := false
+	_ = filepath.WalkDir(c.Output.ReportsDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil //nolint:nilerr // best-effort walk
+		}
+		if data, rerr := os.ReadFile(path); rerr == nil && strings.Contains(string(data), "## Coverage") {
+			found = true
+		}
+		return nil
+	})
+	if !found {
+		t.Error("Expected report with '## Coverage' section")
 	}
 }

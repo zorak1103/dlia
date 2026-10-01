@@ -100,7 +100,7 @@ func TestDetermineLogStartTime_WithLookback(t *testing.T) {
 	st := &state.State{}
 	lookbackDuration := 2 * time.Hour
 
-	since := determineLogStartTime(st, testContainerID, scanCfg, lookbackDuration)
+	since, _ := determineLogStartTime(st, testContainerID, scanCfg, lookbackDuration, 0, time.Now())
 
 	// Should be approximately 2 hours ago
 	expected := time.Now().Add(-lookbackDuration)
@@ -128,7 +128,7 @@ func TestDetermineLogStartTime_WithState(t *testing.T) {
 
 	st.UpdateContainer(testContainerID, "test", lastScan, "")
 
-	since := determineLogStartTime(st, testContainerID, scanCfg, 0)
+	since, _ := determineLogStartTime(st, testContainerID, scanCfg, 0, 0, time.Now())
 
 	if !since.Equal(lastScan) {
 		t.Errorf("Expected time %v, got %v", lastScan, since)
@@ -149,7 +149,7 @@ func TestDetermineLogStartTime_FirstScan(t *testing.T) {
 		t.Fatalf("Failed to load state: %v", err)
 	}
 
-	since := determineLogStartTime(st, testContainerID, scanCfg, 0)
+	since, _ := determineLogStartTime(st, testContainerID, scanCfg, 0, 0, time.Now())
 
 	// Should be approximately 1 hour ago for first scan
 	expected := time.Now().Add(-1 * time.Hour)
@@ -1308,5 +1308,125 @@ func TestGenerateAndSaveReport_VerboseOutput(t *testing.T) {
 			// Note: We can't easily capture stdout to verify verbose output
 			// but we can verify the function completes successfully
 		})
+	}
+}
+
+func TestDetermineLogStartTime_CapsOldCursor(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	st, err := state.Load(t.TempDir() + "/state.json")
+	if err != nil {
+		t.Fatalf("Failed to load state: %v", err)
+	}
+	cursor := now.Add(-48 * time.Hour)
+	st.UpdateContainer(testContainerID, "test", cursor, "")
+
+	since, gap := determineLogStartTime(st, testContainerID, newTestScanConfig(), 0, 24*time.Hour, now)
+
+	if !since.Equal(now.Add(-24 * time.Hour)) {
+		t.Errorf("Expected start %v, got %v", now.Add(-24*time.Hour), since)
+	}
+	if gap == nil {
+		t.Fatal("Expected a gap, got nil")
+	}
+	if !gap.start.Equal(cursor) || !gap.end.Equal(now.Add(-24*time.Hour)) {
+		t.Errorf("Unexpected gap: %+v", *gap)
+	}
+}
+
+func TestDetermineLogStartTime_NoGapInsideWindow(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		cursor time.Time
+	}{
+		{"recent", now.Add(-time.Hour)},
+		{"exactly at window edge", now.Add(-24 * time.Hour)},
+		{"clock skew future", now.Add(5 * time.Minute)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			st, err := state.Load(t.TempDir() + "/state.json")
+			if err != nil {
+				t.Fatalf("Failed to load state: %v", err)
+			}
+			st.UpdateContainer(testContainerID, "test", tt.cursor, "")
+
+			since, gap := determineLogStartTime(st, testContainerID, newTestScanConfig(), 0, 24*time.Hour, now)
+
+			if !since.Equal(tt.cursor) {
+				t.Errorf("Expected start %v, got %v", tt.cursor, since)
+			}
+			if gap != nil {
+				t.Errorf("Expected no gap, got %+v", *gap)
+			}
+		})
+	}
+}
+
+func TestDetermineLogStartTime_LookbackNotCapped(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	since, gap := determineLogStartTime(&state.State{}, testContainerID, newTestScanConfig(), 72*time.Hour, 24*time.Hour, now)
+
+	if !since.Equal(now.Add(-72 * time.Hour)) {
+		t.Errorf("Expected start %v, got %v", now.Add(-72*time.Hour), since)
+	}
+	if gap != nil {
+		t.Errorf("Expected no gap, got %+v", *gap)
+	}
+}
+
+func TestDetermineLogStartTime_FirstScanOneHour(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	st, err := state.Load(t.TempDir() + "/state.json")
+	if err != nil {
+		t.Fatalf("Failed to load state: %v", err)
+	}
+
+	since, gap := determineLogStartTime(st, testContainerID, newTestScanConfig(), 0, 24*time.Hour, now)
+
+	if !since.Equal(now.Add(-time.Hour)) {
+		t.Errorf("Expected start %v, got %v", now.Add(-time.Hour), since)
+	}
+	if gap != nil {
+		t.Errorf("Expected no gap, got %+v", *gap)
+	}
+}
+
+func TestLogGapNote(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 3, 8, 12, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 3, 9, 12, 0, 0, 0, time.UTC)
+
+	got := logGap{start: start, end: end}.note(24 * time.Hour)
+
+	want := "Skipped log gap 2026-03-08T12:00:00Z \u2013 2026-03-09T12:00:00Z (older than scan.max_window=24h0m0s)"
+	if got != want {
+		t.Errorf("Expected %q, got %q", want, got)
+	}
+}
+
+func TestDisplayScanSummary_ShowsFailedAnalyses(t *testing.T) {
+	read := captureStdout(t)
+	displayScanSummary(scanStats{totalLogs: 10, scannedContainers: 3, failedContainers: 2}, newTestScanConfig(), 0)
+	if out := read(); !strings.Contains(out, "Failed analyses: 2 (will be retried next scan)") {
+		t.Errorf("Expected failed analyses line, got:\n%s", out)
+	}
+
+	read = captureStdout(t)
+	displayScanSummary(scanStats{totalLogs: 10, scannedContainers: 3}, newTestScanConfig(), 0)
+	if out := read(); strings.Contains(out, "Failed analyses") {
+		t.Errorf("Expected no failed analyses line, got:\n%s", out)
 	}
 }
