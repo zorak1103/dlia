@@ -575,6 +575,27 @@ func TestLoad_ValidationErrorWithoutConfigFile(t *testing.T) {
 	assert.Contains(t, err.Error(), "(using defaults and environment variables)")
 }
 
+func TestLoad_ValidationErrorWithoutConfigFileIsErrNoConfigFile(t *testing.T) {
+	t.Setenv("DLIA_LLM_API_KEY", "")
+
+	_, err := Load("")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrNoConfigFile)
+	assert.Contains(t, err.Error(), "config validation failed")
+}
+
+func TestLoad_ValidationErrorWithConfigFileIsNotErrNoConfigFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("llm:\n  api_key: k\n  context_window: 4000\n"), 0o600))
+
+	_, err := Load(path)
+
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrNoConfigFile)
+	assert.Contains(t, err.Error(), "config validation failed")
+}
+
 // TestValidate_RetentionBoundaryValues pins the inclusive retention bounds:
 // 1 and 365 are valid, 0 and 366 are not.
 func TestValidate_RetentionBoundaryValues(t *testing.T) {

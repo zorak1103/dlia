@@ -16,7 +16,27 @@ import (
 // Common errors
 var (
 	Err = errors.New("config error")
+
+	// ErrNoConfigFile marks a load error that happened without any config file
+	// (defaults and environment variables only). Check it with errors.Is.
+	ErrNoConfigFile = errors.New("no config file found")
 )
+
+// noConfigFileError keeps the original message and cause of a load error while
+// matching ErrNoConfigFile.
+type noConfigFileError struct{ err error }
+
+func (e *noConfigFileError) Error() string        { return e.err.Error() }
+func (e *noConfigFileError) Unwrap() error        { return e.err }
+func (e *noConfigFileError) Is(target error) bool { return target == ErrNoConfigFile }
+
+// markNoConfigFile tags err with ErrNoConfigFile when no config file was used.
+func markNoConfigFile(err error, configFileUsed string) error {
+	if configFileUsed != "" {
+		return err
+	}
+	return &noConfigFileError{err: err}
+}
 
 const (
 	// DefaultContextWindow is the assumed model context window when none is configured.
@@ -183,7 +203,7 @@ func Load(configPath string) (*Config, error) {
 		if configFile == "" {
 			configFile = "(using defaults and environment variables)"
 		}
-		return nil, fmt.Errorf("config validation failed for %s: %w", configFile, err)
+		return nil, markNoConfigFile(fmt.Errorf("config validation failed for %s: %w", configFile, err), v.ConfigFileUsed())
 	}
 
 	return &cfg, nil

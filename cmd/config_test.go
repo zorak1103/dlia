@@ -403,6 +403,40 @@ func TestValidateConfigOrExit_NilConfigWithLoadError(t *testing.T) {
 	assert.ErrorIs(t, err, errConfigLoad)
 }
 
+func TestValidateConfigOrExit_NilConfigNoConfigFileKeepsInitHint(t *testing.T) {
+	original := errConfigLoad
+	t.Cleanup(func() { errConfigLoad = original })
+	t.Chdir(t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DLIA_LLM_API_KEY", "")
+	_, loadErr := config.Load("")
+	require.Error(t, loadErr)
+	errConfigLoad = loadErr
+
+	err := validateConfigOrExit(nil, "test")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), loadErr.Error())
+	assert.Contains(t, err.Error(), "Run 'dlia init' to set up DLIA and create the necessary configuration")
+	assert.ErrorIs(t, err, errConfigLoad)
+}
+
+func TestValidateConfigOrExit_NilConfigWithConfigFileHasNoInitHint(t *testing.T) {
+	original := errConfigLoad
+	t.Cleanup(func() { errConfigLoad = original })
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("llm:\n  api_key: k\n  context_window: 4000\n"), 0o600))
+	_, loadErr := config.Load(path)
+	require.Error(t, loadErr)
+	errConfigLoad = loadErr
+
+	err := validateConfigOrExit(nil, "test")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), loadErr.Error())
+	assert.NotContains(t, err.Error(), "dlia init")
+	assert.ErrorIs(t, err, errConfigLoad)
+}
 func TestValidateConfigOrExit_NoConfigFile(t *testing.T) {
 	// Create a temporary directory with required directories
 	tmpDir := t.TempDir()

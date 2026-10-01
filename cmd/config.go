@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,9 @@ func validateConfigOrExit(cfg *config.Config, _ string) error {
 	// Check if config was loaded
 	if cfg == nil {
 		if loadErr := GetConfigLoadError(); loadErr != nil {
+			if errors.Is(loadErr, config.ErrNoConfigFile) {
+				return fmt.Errorf("configuration not loaded: %w\n\nRun 'dlia init' to set up DLIA and create the necessary configuration", loadErr)
+			}
 			return fmt.Errorf("configuration not loaded: %w", loadErr)
 		}
 		return fmt.Errorf("configuration not loaded\n\nDLIA has not been initialized in this directory.\nRun 'dlia init' to set up DLIA and create the necessary configuration")
