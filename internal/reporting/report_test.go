@@ -521,3 +521,32 @@ func TestGenerateScanReport_NoFilterStatsSection(t *testing.T) {
 		t.Errorf("GenerateScanReport() should omit pre-processing section without filter stats\nGot:\n%s", result)
 	}
 }
+
+func TestGenerateScanReport_CoverageSection(t *testing.T) {
+	t.Run("with notes", func(t *testing.T) {
+		analysis := &chunking.AnalyzeResult{
+			Analysis:      "analysis text",
+			CoverageNotes: []string{"a", "b"},
+		}
+
+		report := GenerateScanReport("c", analysis, nil)
+
+		if !strings.Contains(report, "## Coverage\n\n- a\n- b\n\n") {
+			t.Errorf("report missing coverage section:\n%s", report)
+		}
+		analysisIdx := strings.Index(report, "analysis text")
+		coverageIdx := strings.Index(report, "## Coverage")
+		statsIdx := strings.Index(report, "## 📊 Statistics")
+		if analysisIdx >= coverageIdx || coverageIdx >= statsIdx {
+			t.Errorf("wrong order: analysis=%d coverage=%d stats=%d", analysisIdx, coverageIdx, statsIdx)
+		}
+	})
+
+	t.Run("without notes", func(t *testing.T) {
+		report := GenerateScanReport("c", &chunking.AnalyzeResult{Analysis: "x"}, nil)
+
+		if strings.Contains(report, "## Coverage") {
+			t.Errorf("report should not contain coverage section:\n%s", report)
+		}
+	})
+}

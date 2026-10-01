@@ -34,6 +34,15 @@ func GenerateScanReport(containerName string, analysis *chunking.AnalyzeResult, 
 	sb.WriteString(analysis.Analysis)
 	sb.WriteString("\n\n")
 
+	// Coverage Section (if parts of the logs were not analyzed)
+	if len(analysis.CoverageNotes) > 0 {
+		sb.WriteString("## Coverage\n\n")
+		for _, note := range analysis.CoverageNotes {
+			fmt.Fprintf(&sb, "- %s\n", note)
+		}
+		sb.WriteString("\n")
+	}
+
 	// Pre-Processing Statistics Section (if filtering occurred)
 	if analysis.FilterStats.LinesTotal > 0 {
 		sb.WriteString("## 🔍 Pre-Processing Statistics\n\n")

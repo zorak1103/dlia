@@ -99,6 +99,8 @@ type AnalyzeResult struct {
 	OriginalCount  int
 	ProcessedCount int
 	FilterStats    FilterStats
+	// CoverageNotes lists parts of the logs that were not analyzed (rendered in the report).
+	CoverageNotes []string
 }
 
 // applyRegexpFilter applies container-specific regexp filtering to logs.
