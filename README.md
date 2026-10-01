@@ -231,9 +231,9 @@ DLIA_SCAN_MAX_WINDOW=24h
 
 ### Reliability Settings
 
-- **`llm.context_window`** (default `128000`, minimum `5625`) - The context window size of your model in tokens, not the answer length. It replaces `llm.max_tokens`, which is deprecated: it still works as an alias but prints a warning. For models unknown to the tokenizer, DLIA budgets 80% of the window because token counts are only estimates.
+- **`llm.context_window`** (default `128000`, minimum `5625`) - The context window size of your model in tokens, not the answer length. It replaces `llm.max_tokens`, which is deprecated: it still works as an alias but prints a warning. Windows below 5625 are rejected at startup. For models unknown to the tokenizer, DLIA budgets 80% of the window because token counts are only estimates.
 - **`llm.max_chunks_per_container`** (default `10`, at least `1`) - If the logs need more chunks than this, only the newest N chunks are analyzed. The rest is noted in the report.
-- **`scan.max_window`** (default `"24h"`) - The longest history read per container per scan. It must be a quoted Go duration string such as `"24h"` or `"90m"` and greater than 0. An older gap is skipped and reported. `--lookback` is not capped by this setting. The first scan of a container reads the last hour.
+- **`scan.max_window`** (default `"24h"`) - The longest history read per container per scan. It must be a quoted Go duration string such as `"24h"` or `"90m"` and at least `1m` (a bare number like `3600` is read as nanoseconds and rejected). An older gap is skipped and reported. `--lookback` is not capped by this setting. The first scan of a container reads the last hour.
 
 If an LLM analysis fails, the container's scan cursor is not advanced, so the same window is retried on the next scan. The scan summary shows `Failed analyses: N (will be retried next scan)`.
 
