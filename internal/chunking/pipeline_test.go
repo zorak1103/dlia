@@ -677,6 +677,23 @@ func TestNewPipelineWithConfig_RegexpFilters(t *testing.T) {
 	}
 }
 
+func TestNewPipelineWithConfig_MaxChunksWiring(t *testing.T) {
+	promptLoader := prompts.NewPromptLoader(&config.Config{})
+
+	t.Run("from config", func(t *testing.T) {
+		cfg := &config.Config{LLM: config.LLMConfig{MaxChunksPerContainer: 7}}
+		p, err := NewPipelineWithConfig("gpt-4", 8000, NewMockLLMClient(), promptLoader, "", cfg)
+		require.NoError(t, err)
+		assert.Equal(t, 7, p.maxChunks)
+	})
+
+	t.Run("nil config means unlimited", func(t *testing.T) {
+		p, err := NewPipelineWithConfig("gpt-4", 8000, NewMockLLMClient(), promptLoader, "", nil)
+		require.NoError(t, err)
+		assert.Equal(t, 0, p.maxChunks)
+	})
+}
+
 // TestNewPipelineWithConfig_IgnoreDir pins the ignore-dir defaulting: a
 // custom path is preserved verbatim, an empty path falls back to the
 // package default.
@@ -741,12 +758,12 @@ func TestLimitChunks(t *testing.T) {
 		{"unlimited", mk(5, true), 0, []int{0, 1, 2, 3, 4}, "", 5},
 		{
 			"over max keeps newest", mk(5, true), 2, []int{3, 4},
-			"Skipped 3 of 5 chunks (6 log lines, 2023-01-01T00:00:00Z – 2023-01-01T00:00:02Z) because of llm.max_chunks_per_container=2",
+			"Skipped 3 of 5 chunks (6 log entries, 2023-01-01T00:00:00Z – 2023-01-01T00:00:02Z) because of llm.max_chunks_per_container=2",
 			2,
 		},
 		{
 			"no timestamps", mk(5, false), 2, []int{3, 4},
-			"Skipped 3 of 5 chunks (6 log lines) because of llm.max_chunks_per_container=2",
+			"Skipped 3 of 5 chunks (6 log entries) because of llm.max_chunks_per_container=2",
 			2,
 		},
 	}

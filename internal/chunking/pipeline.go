@@ -262,7 +262,7 @@ func limitChunks(chunks []Chunk, maxChunks int) (kept []Chunk, note string) {
 		period = fmt.Sprintf(", %s \u2013 %s", first, last)
 	}
 
-	note = fmt.Sprintf("Skipped %d of %d chunks (%d log lines%s) because of llm.max_chunks_per_container=%d",
+	note = fmt.Sprintf("Skipped %d of %d chunks (%d log entries%s) because of llm.max_chunks_per_container=%d",
 		len(skipped), len(chunks), lines, period, maxChunks)
 	return kept, note
 }
