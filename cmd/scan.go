@@ -238,7 +238,7 @@ type logGap struct {
 
 func (g logGap) note(maxWindow time.Duration) string {
 	return fmt.Sprintf("Skipped log gap %s – %s (older than scan.max_window=%s)",
-		g.start.Format(time.RFC3339), g.end.Format(time.RFC3339), maxWindow)
+		g.start.UTC().Format(time.RFC3339), g.end.UTC().Format(time.RFC3339), maxWindow)
 }
 
 func processContainers(ctx context.Context, dockerClient docker.Client, st *state.State, containers []docker.Container, cfg *config.Config, scanCfg *scanConfig, lookbackDuration time.Duration) (map[string]*chunking.AnalyzeResult, scanStats) {
@@ -265,11 +265,6 @@ func processContainers(ctx context.Context, dockerClient docker.Client, st *stat
 // analyses are retried on the next scan.
 func processSingleContainer(ctx context.Context, dockerClient docker.Client, st *state.State, container docker.Container, cfg *config.Config, scanCfg *scanConfig, lookbackDuration time.Duration, llmPipeline **chunking.Pipeline, stats *scanStats) *chunking.AnalyzeResult {
 	since, gap := determineLogStartTime(st, container.ID, scanCfg, lookbackDuration, cfg.Scan.MaxWindow, time.Now())
-	var gapNote string
-	if gap != nil {
-		gapNote = gap.note(cfg.Scan.MaxWindow)
-		fmt.Printf("        ⚠️  %s\n", gapNote)
-	}
 
 	logs, err := processContainerLogs(ctx, dockerClient, container.ID, since)
 	if err != nil {
@@ -278,8 +273,15 @@ func processSingleContainer(ctx context.Context, dockerClient docker.Client, st 
 	}
 
 	if len(logs) == 0 {
+		skipEmptyWindow(st, container, gap, cfg, scanCfg, lookbackDuration)
 		fmt.Printf("        ℹ️  No new logs\n\n")
 		return nil
+	}
+
+	var gapNote string
+	if gap != nil {
+		gapNote = gap.note(cfg.Scan.MaxWindow)
+		fmt.Printf("        ⚠️  %s\n", gapNote)
 	}
 
 	fmt.Printf("        📝 Found %d new log entries\n", len(logs))
@@ -301,12 +303,35 @@ func processSingleContainer(ctx context.Context, dockerClient docker.Client, st 
 	case scanCfg.dryRun:
 		updateContainerState(st, container, logs, scanCfg, lookbackDuration)
 	default:
+		keepWindowOnFailure(st, container, since, scanCfg, lookbackDuration)
 		stats.failedContainers++
 	}
 
 	stats.scannedContainers++
 	fmt.Println()
 	return result
+}
+
+// skipEmptyWindow reports a max_window gap once for a container that produced no
+// logs and moves its cursor to the window floor so the gap is not reported again.
+func skipEmptyWindow(st *state.State, container docker.Container, gap *logGap, cfg *config.Config, scanCfg *scanConfig, lookbackDuration time.Duration) {
+	if gap == nil || scanCfg.dryRun || lookbackDuration != 0 {
+		return
+	}
+	fmt.Printf("        ⚠️  %s\n", gap.note(cfg.Scan.MaxWindow))
+	st.UpdateContainer(container.ID, container.Name, gap.end, "")
+}
+
+// keepWindowOnFailure records the scan start as the cursor of a container that has
+// none yet, so a failed first analysis is retried from the same window instead of
+// a fresh "last hour".
+func keepWindowOnFailure(st *state.State, container docker.Container, since time.Time, scanCfg *scanConfig, lookbackDuration time.Duration) {
+	if scanCfg.dryRun || lookbackDuration != 0 {
+		return
+	}
+	if _, exists := st.GetLastScan(container.ID); !exists {
+		st.UpdateContainer(container.ID, container.Name, since, "")
+	}
 }
 
 func determineLogStartTime(st *state.State, containerID string, scanCfg *scanConfig, lookbackDuration, maxWindow time.Duration, now time.Time) (time.Time, *logGap) {

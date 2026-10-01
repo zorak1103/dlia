@@ -1417,6 +1417,21 @@ func TestLogGapNote(t *testing.T) {
 	}
 }
 
+func TestLogGapNote_UsesUTC(t *testing.T) {
+	t.Parallel()
+
+	zone := time.FixedZone("CEST", 2*60*60)
+	start := time.Date(2026, 3, 8, 14, 0, 0, 0, zone)
+	end := time.Date(2026, 3, 9, 14, 0, 0, 0, zone)
+
+	got := logGap{start: start, end: end}.note(24 * time.Hour)
+
+	want := "Skipped log gap 2026-03-08T12:00:00Z \u2013 2026-03-09T12:00:00Z (older than scan.max_window=24h0m0s)"
+	if got != want {
+		t.Errorf("Expected %q, got %q", want, got)
+	}
+}
+
 func TestDisplayScanSummary_ShowsFailedAnalyses(t *testing.T) {
 	read := captureStdout(t)
 	displayScanSummary(scanStats{totalLogs: 10, scannedContainers: 3, failedContainers: 2}, newTestScanConfig(), 0)
