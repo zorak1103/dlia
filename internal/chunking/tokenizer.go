@@ -17,12 +17,14 @@ type TokenizerInterface interface {
 // Tokenizer wraps tiktoken for counting tokens
 type Tokenizer struct {
 	encoding *tiktoken.Tiktoken
+	estimate bool
 }
 
 // NewTokenizer creates a new tokenizer for the specified model
 func NewTokenizer(model string) (*Tokenizer, error) {
 	// Get encoding for model
 	encoding, err := tiktoken.EncodingForModel(model)
+	estimate := err != nil
 	if err != nil {
 		// Fallback to cl100k_base (used by gpt-4, gpt-3.5-turbo)
 		encoding, err = tiktoken.GetEncoding("cl100k_base")
@@ -31,7 +33,13 @@ func NewTokenizer(model string) (*Tokenizer, error) {
 		}
 	}
 
-	return &Tokenizer{encoding: encoding}, nil
+	return &Tokenizer{encoding: encoding, estimate: estimate}, nil
+}
+
+// IsEstimate reports whether the cl100k_base fallback is in use because the
+// model is unknown, so token counts are only approximate.
+func (t *Tokenizer) IsEstimate() bool {
+	return t.estimate
 }
 
 // CountTokens counts the number of tokens in a text

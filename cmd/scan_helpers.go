@@ -132,6 +132,10 @@ func initializeLLMPipeline(cfg *config.Config, scanCfg *scanConfig) (*chunking.P
 		return nil, fmt.Errorf("failed to create pipeline: %w", err)
 	}
 
+	if scanCfg.verbose && pipeline.TokenCountIsEstimate() {
+		fmt.Printf("        ℹ️  Token counts are estimates for model %s; using 80%% of context_window\n", cfg.LLM.Model)
+	}
+
 	return pipeline, nil
 }
 

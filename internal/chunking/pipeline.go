@@ -24,6 +24,10 @@ const (
 	// A divisor of 2 means each chunk uses at most 50% of available tokens, leaving headroom
 	// for token estimation variance and ensuring model responses aren't truncated.
 	ChunkSizeDivisor = 2
+
+	// EstimateBudgetPercent is the share of the context window used as token budget
+	// when the tokenizer is only an estimate (unknown model, cl100k_base fallback).
+	EstimateBudgetPercent = 80
 )
 
 // Pipeline orchestrates the log processing pipeline
@@ -35,6 +39,13 @@ type Pipeline struct {
 	config                     *config.Config
 	compiledRegexpsByContainer map[string]*RegexpFilter
 	promptLoader               *prompts.PromptLoader
+	tokenCountIsEstimate       bool
+}
+
+// TokenCountIsEstimate reports whether token counts are estimates because the
+// model is unknown to the tokenizer.
+func (p *Pipeline) TokenCountIsEstimate() bool {
+	return p.tokenCountIsEstimate
 }
 
 // AnalysisClient is the subset of llm.Client the pipeline depends on for
@@ -49,13 +60,13 @@ type AnalysisClient interface {
 // NewPipeline creates a new processing pipeline with default configuration.
 // The pipeline handles log deduplication, optional regexp filtering, token counting,
 // and LLM-based analysis with automatic chunking for large log batches.
-func NewPipeline(model string, maxTokens int, client AnalysisClient, promptLoader *prompts.PromptLoader, cfg *config.Config) (*Pipeline, error) {
-	return NewPipelineWithConfig(model, maxTokens, client, promptLoader, "", cfg)
+func NewPipeline(model string, contextWindow int, client AnalysisClient, promptLoader *prompts.PromptLoader, cfg *config.Config) (*Pipeline, error) {
+	return NewPipelineWithConfig(model, contextWindow, client, promptLoader, "", cfg)
 }
 
 // NewPipelineWithConfig creates a new processing pipeline with custom ignore directory.
 // Use this when you need to specify a non-default location for container-specific ignore patterns.
-func NewPipelineWithConfig(model string, maxTokens int, client AnalysisClient, promptLoader *prompts.PromptLoader, ignoreDir string, cfg *config.Config) (*Pipeline, error) {
+func NewPipelineWithConfig(model string, contextWindow int, client AnalysisClient, promptLoader *prompts.PromptLoader, ignoreDir string, cfg *config.Config) (*Pipeline, error) {
 	tokenizer, err := NewTokenizer(model)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tokenizer for model %s: %w", model, err)
@@ -79,10 +90,16 @@ func NewPipelineWithConfig(model string, maxTokens int, client AnalysisClient, p
 		}
 	}
 
+	maxTokens := contextWindow
+	if tokenizer.IsEstimate() {
+		maxTokens = contextWindow * EstimateBudgetPercent / 100
+	}
+
 	return &Pipeline{
 		tokenizer:                  tokenizer,
 		client:                     client,
 		maxTokens:                  maxTokens,
+		tokenCountIsEstimate:       tokenizer.IsEstimate(),
 		ignoreDir:                  ignoreDir,
 		config:                     cfg,
 		compiledRegexpsByContainer: regexpFilters,

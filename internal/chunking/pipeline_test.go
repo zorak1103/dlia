@@ -141,7 +141,11 @@ func TestNewPipeline(t *testing.T) {
 				assert.NotNil(t, pipeline.client, "Expected client to be set")
 			}
 
-			assert.Equal(t, tt.maxTokens, pipeline.maxTokens)
+			if pipeline.TokenCountIsEstimate() {
+				assert.Equal(t, tt.maxTokens*EstimateBudgetPercent/100, pipeline.maxTokens)
+			} else {
+				assert.Equal(t, tt.maxTokens, pipeline.maxTokens)
+			}
 		})
 	}
 }
@@ -688,4 +692,23 @@ func TestNewPipelineWithConfig_IgnoreDir(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, config.DefaultIgnoreDir, pipeline.ignoreDir)
 	})
+}
+
+func TestNewPipeline_BudgetMarginForUnknownModel(t *testing.T) {
+	loader := prompts.NewPromptLoader(&config.Config{})
+
+	p, err := NewPipeline("unknown-model", 100000, NewMockLLMClient(), loader, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 80000, p.maxTokens)
+	assert.True(t, p.TokenCountIsEstimate())
+
+	p, err = NewPipeline("gpt-4", 100000, NewMockLLMClient(), loader, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 100000, p.maxTokens)
+	assert.False(t, p.TokenCountIsEstimate())
+}
+
+func TestMinContextWindowKeepsBudgetPositive(t *testing.T) {
+	budget := config.MinContextWindow*EstimateBudgetPercent/100 - ResponseReserveTokens - SystemPromptReserveTokens
+	assert.GreaterOrEqual(t, budget, 0)
 }
