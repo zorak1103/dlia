@@ -224,6 +224,9 @@ func displayNoContainersFound(scanCfg *scanConfig) {
 	}
 }
 
+// nowFunc is the clock used for scan windows; tests replace it.
+var nowFunc = time.Now
+
 type scanStats struct {
 	totalLogs         int
 	scannedContainers int
@@ -264,7 +267,8 @@ func processContainers(ctx context.Context, dockerClient docker.Client, st *stat
 // none). The state cursor only advances after a successful analysis, so failed
 // analyses are retried on the next scan.
 func processSingleContainer(ctx context.Context, dockerClient docker.Client, st *state.State, container docker.Container, cfg *config.Config, scanCfg *scanConfig, lookbackDuration time.Duration, llmPipeline **chunking.Pipeline, stats *scanStats) *chunking.AnalyzeResult {
-	since, gap := determineLogStartTime(st, container.ID, scanCfg, lookbackDuration, cfg.Scan.MaxWindow, time.Now())
+	now := nowFunc()
+	since, gap := determineLogStartTime(st, container.ID, scanCfg, lookbackDuration, cfg.Scan.MaxWindow, now)
 
 	logs, err := processContainerLogs(ctx, dockerClient, container.ID, since)
 	if err != nil {
@@ -273,7 +277,7 @@ func processSingleContainer(ctx context.Context, dockerClient docker.Client, st 
 	}
 
 	if len(logs) == 0 {
-		skipEmptyWindow(st, container, gap, cfg, scanCfg, lookbackDuration)
+		recordEmptyRead(st, container, gap, now, cfg, scanCfg, lookbackDuration)
 		fmt.Printf("        ℹ️  No new logs\n\n")
 		return nil
 	}
@@ -312,14 +316,18 @@ func processSingleContainer(ctx context.Context, dockerClient docker.Client, st 
 	return result
 }
 
-// skipEmptyWindow reports a max_window gap once for a container that produced no
-// logs and moves its cursor to the window floor so the gap is not reported again.
-func skipEmptyWindow(st *state.State, container docker.Container, gap *logGap, cfg *config.Config, scanCfg *scanConfig, lookbackDuration time.Duration) {
-	if gap == nil || scanCfg.dryRun || lookbackDuration != 0 {
+// recordEmptyRead handles a successful read that returned no logs. It reports a
+// max_window gap (once, because the cursor moves past it) and advances the cursor
+// to the read time, so a quiet container neither drifts past max_window nor
+// re-reports the gap on every scan. Dry runs and lookback scans leave state alone.
+func recordEmptyRead(st *state.State, container docker.Container, gap *logGap, now time.Time, cfg *config.Config, scanCfg *scanConfig, lookbackDuration time.Duration) {
+	if scanCfg.dryRun || lookbackDuration != 0 {
 		return
 	}
-	fmt.Printf("        ⚠️  %s\n", gap.note(cfg.Scan.MaxWindow))
-	st.UpdateContainer(container.ID, container.Name, gap.end, "")
+	if gap != nil {
+		fmt.Printf("        ⚠️  %s\n", gap.note(cfg.Scan.MaxWindow))
+	}
+	st.UpdateContainer(container.ID, container.Name, now, "")
 }
 
 // keepWindowOnFailure records the scan start as the cursor of a container that has
