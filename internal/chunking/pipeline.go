@@ -40,6 +40,7 @@ type Pipeline struct {
 	compiledRegexpsByContainer map[string]*RegexpFilter
 	promptLoader               *prompts.PromptLoader
 	tokenCountIsEstimate       bool
+	maxChunks                  int
 }
 
 // TokenCountIsEstimate reports whether token counts are estimates because the
@@ -95,6 +96,11 @@ func NewPipelineWithConfig(model string, contextWindow int, client AnalysisClien
 		maxTokens = contextWindow * EstimateBudgetPercent / 100
 	}
 
+	maxChunks := 0
+	if cfg != nil {
+		maxChunks = cfg.LLM.MaxChunksPerContainer
+	}
+
 	return &Pipeline{
 		tokenizer:                  tokenizer,
 		client:                     client,
@@ -104,6 +110,7 @@ func NewPipelineWithConfig(model string, contextWindow int, client AnalysisClien
 		config:                     cfg,
 		compiledRegexpsByContainer: regexpFilters,
 		promptLoader:               promptLoader,
+		maxChunks:                  maxChunks,
 	}, nil
 }
 
@@ -204,21 +211,18 @@ func (p *Pipeline) AnalyzeLogs(ctx context.Context, containerName string, logs [
 
 	// Step 4: Choose analysis strategy based on token budget
 	if totalTokens+ResponseReserveTokens <= p.maxTokens {
-		analysis, usage, err := p.analyzeDirectly(ctx, containerName, processedLogs, systemPrompt, logsText)
+		var usage *llm.TokenUsage
+		result.Analysis, usage, err = p.analyzeDirectly(ctx, containerName, processedLogs, systemPrompt, logsText)
 		if err != nil {
 			return nil, err
 		}
-		result.Analysis = analysis
 		result.TokensUsed = usage.TotalTokens
 		result.ChunksUsed = 1
 	} else {
-		analysis, tokensUsed, chunksUsed, err := p.analyzeWithChunking(ctx, containerName, processedLogs, systemPrompt, availableTokens)
+		result.Analysis, result.TokensUsed, result.ChunksUsed, result.CoverageNotes, err = p.analyzeWithChunking(ctx, containerName, processedLogs, systemPrompt, availableTokens)
 		if err != nil {
 			return nil, err
 		}
-		result.Analysis = analysis
-		result.TokensUsed = tokensUsed
-		result.ChunksUsed = chunksUsed
 	}
 
 	return result, nil
@@ -232,11 +236,47 @@ func (p *Pipeline) analyzeDirectly(ctx context.Context, containerName string, lo
 	return p.client.Analyze(ctx, containerName, systemPrompt, userPrompt)
 }
 
-func (p *Pipeline) analyzeWithChunking(ctx context.Context, containerName string, logs []docker.LogEntry, systemPrompt string, availableTokens int) (analysis string, totalTokens, chunksUsed int, err error) {
+// limitChunks keeps only the newest maxChunks chunks (renumbered) and returns a
+// coverage note describing the skipped ones. maxChunks <= 0 means unlimited.
+func limitChunks(chunks []Chunk, maxChunks int) (kept []Chunk, note string) {
+	if maxChunks <= 0 || len(chunks) <= maxChunks {
+		return chunks, ""
+	}
+
+	skipped := chunks[:len(chunks)-maxChunks]
+	kept = append([]Chunk(nil), chunks[len(chunks)-maxChunks:]...)
+	for i := range kept {
+		kept[i].Index = i
+		kept[i].Total = len(kept)
+	}
+
+	lines := 0
+	for _, c := range skipped {
+		lines += len(c.Logs)
+	}
+	period := ""
+	first := skipped[0].Logs[0].Timestamp
+	lastLogs := skipped[len(skipped)-1].Logs
+	last := lastLogs[len(lastLogs)-1].Timestamp
+	if first != "" && last != "" {
+		period = fmt.Sprintf(", %s \u2013 %s", first, last)
+	}
+
+	note = fmt.Sprintf("Skipped %d of %d chunks (%d log lines%s) because of llm.max_chunks_per_container=%d",
+		len(skipped), len(chunks), lines, period, maxChunks)
+	return kept, note
+}
+
+func (p *Pipeline) analyzeWithChunking(ctx context.Context, containerName string, logs []docker.LogEntry, systemPrompt string, availableTokens int) (analysis string, totalTokens, chunksUsed int, notes []string, err error) {
 	chunks := ChunkLogs(logs, availableTokens/ChunkSizeDivisor, p.tokenizer)
 
 	if len(chunks) == 0 {
-		return "No logs could be processed within token limits", 0, 0, nil
+		return "No logs could be processed within token limits", 0, 0, nil, nil
+	}
+
+	chunks, note := limitChunks(chunks, p.maxChunks)
+	if note != "" {
+		notes = append(notes, note)
 	}
 
 	summaries := make([]string, len(chunks))
@@ -247,12 +287,12 @@ func (p *Pipeline) analyzeWithChunking(ctx context.Context, containerName string
 		chunkText := FormatChunk(chunk)
 		chunkPrompt, promptErr := p.promptLoader.ChunkSummaryPrompt(containerName, i+1, len(chunks), chunkText)
 		if promptErr != nil {
-			return "", totalTokens, chunksUsed, fmt.Errorf("failed to load chunk summary prompt: %w", promptErr)
+			return "", totalTokens, chunksUsed, notes, fmt.Errorf("failed to load chunk summary prompt: %w", promptErr)
 		}
 
 		summary, summarizeErr := p.client.SummarizeChunk(ctx, containerName, systemPrompt, chunkPrompt)
 		if summarizeErr != nil {
-			return "", totalTokens, chunksUsed, fmt.Errorf("failed to summarize chunk %d/%d (length: %d logs, %d tokens) for container %s: %w",
+			return "", totalTokens, chunksUsed, notes, fmt.Errorf("failed to summarize chunk %d/%d (length: %d logs, %d tokens) for container %s: %w",
 				i+1, len(chunks), len(chunk.Logs), chunk.TokenCount, containerName, summarizeErr)
 		}
 
@@ -263,15 +303,15 @@ func (p *Pipeline) analyzeWithChunking(ctx context.Context, containerName string
 
 	synthesisPrompt, synthesisErr := p.promptLoader.SynthesisPrompt(containerName, summaries)
 	if synthesisErr != nil {
-		return "", totalTokens, chunksUsed, fmt.Errorf("failed to load synthesis prompt: %w", synthesisErr)
+		return "", totalTokens, chunksUsed, notes, fmt.Errorf("failed to load synthesis prompt: %w", synthesisErr)
 	}
 	finalAnalysis, usage, analyzeErr := p.client.Analyze(ctx, containerName, systemPrompt, synthesisPrompt)
 	if analyzeErr != nil {
-		return "", totalTokens, chunksUsed, fmt.Errorf("failed to synthesize %d chunk summaries for container %s: %w",
+		return "", totalTokens, chunksUsed, notes, fmt.Errorf("failed to synthesize %d chunk summaries for container %s: %w",
 			len(summaries), containerName, analyzeErr)
 	}
 
 	totalTokens += usage.TotalTokens
 
-	return finalAnalysis, totalTokens, chunksUsed, nil
+	return finalAnalysis, totalTokens, chunksUsed, notes, nil
 }

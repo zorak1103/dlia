@@ -2,6 +2,8 @@ package chunking
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -556,7 +558,7 @@ func TestPipeline_AnalyzeWithChunking(t *testing.T) {
 			}
 
 			ctx := context.Background()
-			analysis, tokens, chunksUsed, err := pipeline.analyzeWithChunking(ctx, "test-container", tt.logs, "system prompt", tt.availableTokens)
+			analysis, tokens, chunksUsed, _, err := pipeline.analyzeWithChunking(ctx, "test-container", tt.logs, "system prompt", tt.availableTokens)
 
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -711,4 +713,72 @@ func TestNewPipeline_BudgetMarginForUnknownModel(t *testing.T) {
 func TestMinContextWindowKeepsBudgetPositive(t *testing.T) {
 	budget := config.MinContextWindow*EstimateBudgetPercent/100 - ResponseReserveTokens - SystemPromptReserveTokens
 	assert.GreaterOrEqual(t, budget, 0)
+}
+
+func TestLimitChunks(t *testing.T) {
+	mk := func(n int, ts bool) []Chunk {
+		chunks := make([]Chunk, n)
+		for i := range chunks {
+			entry := docker.LogEntry{Message: fmt.Sprintf("m%d", i)}
+			if ts {
+				entry.Timestamp = fmt.Sprintf("2023-01-01T00:00:0%dZ", i)
+			}
+			chunks[i] = Chunk{Logs: []docker.LogEntry{entry, entry}, Index: i, Total: n}
+		}
+		return chunks
+	}
+
+	tests := []struct {
+		name        string
+		chunks      []Chunk
+		maxChunks   int
+		wantOrig    []int
+		wantNote    string
+		wantRenumTo int
+	}{
+		{"below max", mk(3, true), 5, []int{0, 1, 2}, "", 3},
+		{"equal to max", mk(3, true), 3, []int{0, 1, 2}, "", 3},
+		{"unlimited", mk(5, true), 0, []int{0, 1, 2, 3, 4}, "", 5},
+		{
+			"over max keeps newest", mk(5, true), 2, []int{3, 4},
+			"Skipped 3 of 5 chunks (6 log lines, 2023-01-01T00:00:00Z – 2023-01-01T00:00:02Z) because of llm.max_chunks_per_container=2",
+			2,
+		},
+		{
+			"no timestamps", mk(5, false), 2, []int{3, 4},
+			"Skipped 3 of 5 chunks (6 log lines) because of llm.max_chunks_per_container=2",
+			2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			kept, note := limitChunks(tt.chunks, tt.maxChunks)
+			require.Len(t, kept, len(tt.wantOrig))
+			for i, orig := range tt.wantOrig {
+				assert.Equal(t, fmt.Sprintf("m%d", orig), kept[i].Logs[0].Message)
+				assert.Equal(t, i, kept[i].Index)
+				assert.Equal(t, tt.wantRenumTo, kept[i].Total)
+			}
+			assert.Equal(t, tt.wantNote, note)
+		})
+	}
+}
+
+func TestPipeline_ChunkLimitAnalyzesNewestOnly(t *testing.T) {
+	tok := NewMockTokenizer(1)
+	client := newRecordingClient()
+	p, _ := newForcedChunkedPipeline(t, tok, client)
+	p.maxChunks = 1
+
+	res, err := p.AnalyzeLogs(context.Background(), "c", threeLogs())
+	require.NoError(t, err)
+
+	require.Len(t, client.summarizePrompts, 1)
+	assert.Contains(t, client.summarizePrompts[0], "msg three")
+	assert.NotContains(t, client.summarizePrompts[0], "msg one")
+	assert.Contains(t, client.summarizePrompts[0], "chunk 1 of 1")
+	assert.Equal(t, 1, res.ChunksUsed)
+	require.Len(t, res.CoverageNotes, 1)
+	assert.True(t, strings.HasPrefix(res.CoverageNotes[0], "Skipped"), res.CoverageNotes[0])
 }
