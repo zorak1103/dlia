@@ -32,6 +32,7 @@ llm:
 scan:
   # Longest history read per container per scan
   # Older gaps are skipped and reported
+  # Must be a quoted duration with unit, e.g. "24h" or "90m" (at least 1m)
   max_window: "24h"
 
 # Docker Configuration

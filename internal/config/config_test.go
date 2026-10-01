@@ -791,6 +791,37 @@ func TestLoadFromViper_ResolvesContextWindow(t *testing.T) {
 	assert.Contains(t, cfg.Warnings[0], "llm.max_tokens is deprecated")
 }
 
+func TestLoadFromViper_SmallAliasErrorMentionsMaxTokens(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "")
+	t.Setenv("DLIA_LLM_CONTEXT_WINDOW", "")
+	t.Setenv("DLIA_LLM_MAX_TOKENS", "")
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("llm.api_key", "test-key")
+	viper.Set("llm.max_tokens", 4000)
+
+	_, err := LoadFromViper()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "llm.context_window (set via deprecated llm.max_tokens=4000) must be at least 5625, got 4000")
+}
+
+func TestLoadFromViper_SmallContextWindowErrorHasNoAliasHint(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "")
+	t.Setenv("DLIA_LLM_CONTEXT_WINDOW", "")
+	t.Setenv("DLIA_LLM_MAX_TOKENS", "")
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("llm.api_key", "test-key")
+	viper.Set("llm.context_window", 4000)
+
+	_, err := LoadFromViper()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "llm.context_window must be at least 5625, got 4000")
+	assert.NotContains(t, err.Error(), "deprecated")
+}
+
 func TestValidate_ReliabilityRanges(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -803,7 +834,10 @@ func TestValidate_ReliabilityRanges(t *testing.T) {
 		{"context_window below minimum", func(c *Config) { c.LLM.ContextWindow = MinContextWindow - 1 }, "llm.context_window"},
 		{"context_window at minimum", func(c *Config) { c.LLM.ContextWindow = MinContextWindow }, ""},
 		{"max_chunks one", func(c *Config) { c.LLM.MaxChunksPerContainer = 1 }, ""},
-		{"max_window one nanosecond", func(c *Config) { c.Scan.MaxWindow = time.Nanosecond }, ""},
+		{"max_window bare number 3600 (3.6us)", func(c *Config) { c.Scan.MaxWindow = 3600 }, `use a quoted duration like "24h"`},
+		{"max_window one nanosecond", func(c *Config) { c.Scan.MaxWindow = time.Nanosecond }, "scan.max_window"},
+		{"max_window just below one minute", func(c *Config) { c.Scan.MaxWindow = time.Minute - 1 }, "scan.max_window"},
+		{"max_window one minute", func(c *Config) { c.Scan.MaxWindow = time.Minute }, ""},
 	}
 
 	for _, tt := range tests {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/zorak1103/dlia/internal/config"
 )
 
@@ -376,7 +378,9 @@ func TestDisplayPromptPaths_MixedConfiguration(t *testing.T) {
 }
 
 func TestValidateConfigOrExit_NilConfig(t *testing.T) {
-	t.Parallel()
+	original := errConfigLoad
+	t.Cleanup(func() { errConfigLoad = original })
+	errConfigLoad = nil
 
 	err := validateConfigOrExit(nil, "test")
 
@@ -384,6 +388,19 @@ func TestValidateConfigOrExit_NilConfig(t *testing.T) {
 	assert.Contains(t, err.Error(), "configuration not loaded")
 	assert.Contains(t, err.Error(), "DLIA has not been initialized")
 	assert.Contains(t, err.Error(), "Run 'dlia init'")
+}
+
+func TestValidateConfigOrExit_NilConfigWithLoadError(t *testing.T) {
+	original := errConfigLoad
+	t.Cleanup(func() { errConfigLoad = original })
+	errConfigLoad = errors.New("llm.context_window must be at least 5625, got 4000")
+
+	err := validateConfigOrExit(nil, "test")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "llm.context_window must be at least 5625, got 4000")
+	assert.NotContains(t, err.Error(), "has not been initialized")
+	assert.ErrorIs(t, err, errConfigLoad)
 }
 
 func TestValidateConfigOrExit_NoConfigFile(t *testing.T) {

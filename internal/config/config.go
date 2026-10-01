@@ -72,6 +72,9 @@ type LLMConfig struct {
 	MaxChunksPerContainer int    `mapstructure:"max_chunks_per_container"`
 	// MaxTokens is a deprecated alias for ContextWindow.
 	MaxTokens int `mapstructure:"max_tokens"`
+
+	// contextWindowFromAlias records that ContextWindow was taken from MaxTokens.
+	contextWindowFromAlias bool
 }
 
 // DockerConfig contains Docker-specific settings
@@ -284,6 +287,7 @@ func resolveContextWindow(cfg *Config) {
 			msg += " (ignored because llm.context_window is set)"
 		} else {
 			cfg.LLM.ContextWindow = cfg.LLM.MaxTokens
+			cfg.LLM.contextWindowFromAlias = true
 		}
 		cfg.Warnings = append(cfg.Warnings, msg)
 	}
@@ -337,8 +341,8 @@ func (c *Config) validateRanges(configSource string) error {
 		return fmt.Errorf("output.knowledge_retention_days must be between 1 and 365, got %d in config %s",
 			c.Output.KnowledgeRetentionDays, configSource)
 	}
-	if c.Scan.MaxWindow <= 0 {
-		return fmt.Errorf("scan.max_window must be greater than 0, got %v in config %s",
+	if c.Scan.MaxWindow < time.Minute {
+		return fmt.Errorf("scan.max_window must be at least 1m, got %v in config %s (use a quoted duration like \"24h\"; a bare number is read as nanoseconds)",
 			c.Scan.MaxWindow, configSource)
 	}
 	if c.LLM.MaxChunksPerContainer < 1 {
@@ -346,8 +350,12 @@ func (c *Config) validateRanges(configSource string) error {
 			c.LLM.MaxChunksPerContainer, configSource)
 	}
 	if c.LLM.ContextWindow < MinContextWindow {
-		return fmt.Errorf("llm.context_window must be at least %d, got %d in config %s",
-			MinContextWindow, c.LLM.ContextWindow, configSource)
+		name := "llm.context_window"
+		if c.LLM.contextWindowFromAlias {
+			name = fmt.Sprintf("llm.context_window (set via deprecated llm.max_tokens=%d)", c.LLM.MaxTokens)
+		}
+		return fmt.Errorf("%s must be at least %d, got %d in config %s",
+			name, MinContextWindow, c.LLM.ContextWindow, configSource)
 	}
 	return nil
 }

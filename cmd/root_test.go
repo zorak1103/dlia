@@ -403,10 +403,12 @@ func TestRootCmd_PersistentPreRunE_LoadConfig(t *testing.T) {
 	originalCfg := cfg
 	originalCfgFile := cfgFile
 	originalVerbose := verbose
+	originalErr := errConfigLoad
 	defer func() {
 		cfg = originalCfg
 		cfgFile = originalCfgFile
 		verbose = originalVerbose
+		errConfigLoad = originalErr
 	}()
 
 	// Create a mock command that is not init or help
@@ -429,10 +431,12 @@ func TestRootCmd_PersistentPreRunE_VerboseMode(t *testing.T) {
 	originalCfg := cfg
 	originalCfgFile := cfgFile
 	originalVerbose := verbose
+	originalErr := errConfigLoad
 	defer func() {
 		cfg = originalCfg
 		cfgFile = originalCfgFile
 		verbose = originalVerbose
+		errConfigLoad = originalErr
 	}()
 
 	// Create a mock command
