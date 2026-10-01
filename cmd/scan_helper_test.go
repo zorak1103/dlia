@@ -505,10 +505,10 @@ func TestProcessLLMAnalysis_DryRun(t *testing.T) {
 	}
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			APIKey:    "test-key",
-			Model:     "test-model",
-			BaseURL:   "http://test",
-			MaxTokens: 4000,
+			APIKey:        "test-key",
+			Model:         "test-model",
+			BaseURL:       "http://test",
+			ContextWindow: 4000,
 		},
 	}
 	var pipeline *chunking.Pipeline
@@ -539,10 +539,10 @@ func TestProcessLLMAnalysis_PipelineInitializationFails(t *testing.T) {
 	// Config without API key should cause initialization to fail
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			APIKey:    "", // Missing API key
-			Model:     "test-model",
-			BaseURL:   "http://test",
-			MaxTokens: 4000,
+			APIKey:        "", // Missing API key
+			Model:         "test-model",
+			BaseURL:       "http://test",
+			ContextWindow: 4000,
 		},
 	}
 
@@ -572,10 +572,10 @@ func TestInitializeLLMPipeline_NoAPIKey(t *testing.T) {
 
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			APIKey:    "",
-			Model:     "test-model",
-			BaseURL:   "http://test",
-			MaxTokens: 4000,
+			APIKey:        "",
+			Model:         "test-model",
+			BaseURL:       "http://test",
+			ContextWindow: 4000,
 		},
 	}
 
@@ -597,10 +597,10 @@ func TestInitializeLLMPipeline_WithAPIKey(t *testing.T) {
 
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			APIKey:    "test-key",
-			Model:     "test-model",
-			BaseURL:   "http://test",
-			MaxTokens: 4000,
+			APIKey:        "test-key",
+			Model:         "test-model",
+			BaseURL:       "http://test",
+			ContextWindow: 4000,
 		},
 	}
 
@@ -627,10 +627,10 @@ func TestInitializeLLMPipeline_WithLLMLogging(t *testing.T) {
 
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			APIKey:    "test-key",
-			Model:     "test-model",
-			BaseURL:   "http://test",
-			MaxTokens: 4000,
+			APIKey:        "test-key",
+			Model:         "test-model",
+			BaseURL:       "http://test",
+			ContextWindow: 4000,
 		},
 		Output: config.OutputConfig{
 			LLMLogDir:     tmpDir,

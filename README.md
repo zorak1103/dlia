@@ -178,7 +178,7 @@ llm:
   base_url: "https://api.openai.com/v1"  # or OpenRouter, Ollama, etc.
   api_key: ""  # Set via DLIA_LLM_API_KEY
   model: "gpt-4o-mini"
-  max_tokens: 128000
+  context_window: 128000  # model context window (replaces deprecated max_tokens)
 
 docker:
   socket_path: "" # Auto-detects for Linux, macOS, and Windows

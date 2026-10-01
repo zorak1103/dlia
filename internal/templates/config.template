@@ -21,8 +21,18 @@ llm:
   #   - Ollama: llama3.2, mistral, codellama
   model: "gpt-4o-mini"
   
-  # Maximum token limit for the model
-  max_tokens: 128000
+  # Context window size of the model in tokens (not the answer length)
+  context_window: 128000
+
+  # Maximum number of log chunks analyzed per container and scan
+  # The newest chunks win; the rest is noted in the report
+  max_chunks_per_container: 10
+
+# Scan Configuration
+scan:
+  # Longest history read per container per scan
+  # Older gaps are skipped and reported
+  max_window: "24h"
 
 # Docker Configuration
 docker:

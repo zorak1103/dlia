@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -583,11 +584,13 @@ func TestConfigCmd_OutputsKnowledgeRetentionDays(t *testing.T) {
 	testCfg := &config.Config{
 		ConfigFilePath: configFile,
 		LLM: config.LLMConfig{
-			BaseURL:   "https://api.example.com/v1",
-			APIKey:    "sk-test-key-1234567890",
-			Model:     "gpt-4",
-			MaxTokens: 8000,
+			BaseURL:               "https://api.example.com/v1",
+			APIKey:                "sk-test-key-1234567890",
+			Model:                 "gpt-4",
+			ContextWindow:         8000,
+			MaxChunksPerContainer: 7,
 		},
+		Scan: config.ScanConfig{MaxWindow: 36 * time.Hour},
 		Docker: config.DockerConfig{
 			SocketPath: "unix:///var/run/docker.sock",
 		},
@@ -634,4 +637,8 @@ func TestConfigCmd_OutputsKnowledgeRetentionDays(t *testing.T) {
 	// Assert: Check that knowledge_retention_days is in the output
 	assert.Contains(t, output, "Knowledge Retention:", "Output should contain 'Knowledge Retention:' label")
 	assert.Contains(t, output, "45 days", "Output should contain the configured value '45 days'")
+	assert.Regexp(t, `Context Window:\s+8000`, output)
+	assert.Regexp(t, `Max Chunks:\s+7`, output)
+	assert.Regexp(t, `Max Window:\s+36h0m0s`, output)
+	assert.NotContains(t, output, "Max Tokens")
 }

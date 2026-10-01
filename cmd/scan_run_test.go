@@ -55,10 +55,10 @@ func setupScanRunTest(t *testing.T) *scanRunEnv {
 	cfg = &config.Config{
 		ConfigFilePath: configFile,
 		LLM: config.LLMConfig{
-			APIKey:    "test-key",
-			Model:     "test-model",
-			BaseURL:   "http://localhost",
-			MaxTokens: 4000,
+			APIKey:        "test-key",
+			Model:         "test-model",
+			BaseURL:       "http://localhost",
+			ContextWindow: 4000,
 		},
 		Docker: config.DockerConfig{
 			SocketPath: "unix:///var/run/docker.sock",

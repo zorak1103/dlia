@@ -42,10 +42,10 @@ func TestProcessContainers_Success(t *testing.T) {
 
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			APIKey:    "test-key",
-			Model:     "test-model",
-			BaseURL:   "http://test",
-			MaxTokens: 4000,
+			APIKey:        "test-key",
+			Model:         "test-model",
+			BaseURL:       "http://test",
+			ContextWindow: 4000,
 		},
 		Output: config.OutputConfig{
 			ReportsDir:       tmpDir + "/reports",
@@ -96,10 +96,10 @@ func TestProcessContainers_NoLogs(t *testing.T) {
 
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			APIKey:    "test-key",
-			Model:     "test-model",
-			BaseURL:   "http://test",
-			MaxTokens: 4000,
+			APIKey:        "test-key",
+			Model:         "test-model",
+			BaseURL:       "http://test",
+			ContextWindow: 4000,
 		},
 	}
 
@@ -138,10 +138,10 @@ func TestProcessContainers_LogReadError(t *testing.T) {
 
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			APIKey:    "test-key",
-			Model:     "test-model",
-			BaseURL:   "http://test",
-			MaxTokens: 4000,
+			APIKey:        "test-key",
+			Model:         "test-model",
+			BaseURL:       "http://test",
+			ContextWindow: 4000,
 		},
 	}
 
@@ -536,10 +536,10 @@ func TestProcessContainers_MultipleContainers(t *testing.T) {
 
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			APIKey:    "test-key",
-			Model:     "test-model",
-			BaseURL:   "http://test",
-			MaxTokens: 4000,
+			APIKey:        "test-key",
+			Model:         "test-model",
+			BaseURL:       "http://test",
+			ContextWindow: 4000,
 		},
 		Output: config.OutputConfig{
 			ReportsDir:       tmpDir + "/reports",

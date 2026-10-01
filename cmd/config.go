@@ -95,8 +95,14 @@ Sensitive values like API keys are masked for security.`,
 		fmt.Println("🤖 LLM Configuration:")
 		fmt.Printf("   Base URL:       %s\n", cfg.LLM.BaseURL)
 		fmt.Printf("   Model:          %s\n", cfg.LLM.Model)
-		fmt.Printf("   Max Tokens:     %d\n", cfg.LLM.MaxTokens)
+		fmt.Printf("   Context Window: %d\n", cfg.LLM.ContextWindow)
+		fmt.Printf("   Max Chunks:     %d\n", cfg.LLM.MaxChunksPerContainer)
 		fmt.Printf("   API Key:        %s\n", maskAPIKey(cfg.LLM.APIKey))
+		fmt.Println()
+
+		// Scan Configuration
+		fmt.Println("🔍 Scan Configuration:")
+		fmt.Printf("   Max Window:     %s\n", cfg.Scan.MaxWindow)
 		fmt.Println()
 
 		// Docker Configuration
