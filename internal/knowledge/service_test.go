@@ -235,7 +235,10 @@ Entry 2
 			wantCount: 2,
 		},
 		{
-			name: "handle entries without timestamps",
+			// "### Scan: invalid-timestamp" is no longer an entry boundary (only RFC3339
+			// headings are), so before the first valid entry it is leading junk and is
+			// dropped with the rest of the legacy fragment. Previously it was kept.
+			name: "invalid-timestamp heading before first entry is dropped",
 			content: `# Knowledge Base: test-container
 
 ## Service History
@@ -243,7 +246,7 @@ Entry 2
 ### Scan: invalid-timestamp
 **Status:** 🟢 Healthy
 
-Entry without valid timestamp (should be kept)
+Entry without valid timestamp (dropped as leading junk)
 
 ---
 
@@ -255,7 +258,7 @@ Valid entry
 ---
 `,
 			retention: 30 * 24 * time.Hour,
-			wantCount: 2,
+			wantCount: 1,
 		},
 		{
 			name: "handle empty content",
@@ -584,9 +587,17 @@ Entry 2
 	})
 
 	t.Run("malformed timestamp", func(t *testing.T) {
+		// A malformed heading is not a boundary: it stays part of the preceding
+		// valid entry and is kept with it (fail-safe).
+		recent := time.Now().Add(-1 * time.Hour).Format(time.RFC3339)
 		content := `# Knowledge Base: test-container
 
 ## Service History
+
+### Scan: ` + recent + `
+**Status:** 🟢 Healthy
+
+Valid entry
 
 ### Scan: not-a-timestamp
 **Status:** 🟢 Healthy
@@ -597,7 +608,6 @@ Entry with bad timestamp
 `
 		result := pruneEntries(content, 30*24*time.Hour)
 
-		// Entry with bad timestamp should be kept (fail-safe)
 		if !strings.Contains(result, "Entry with bad timestamp") {
 			t.Error("Entry with malformed timestamp should be preserved")
 		}
@@ -1223,4 +1233,111 @@ func TestUpdateServiceKB_KeepsRecentEntriesWithinRetention(t *testing.T) {
 	if !strings.Contains(string(data), "fresh analysis") {
 		t.Errorf("new entry should be appended, got:\n%s", data)
 	}
+}
+
+func kbWithEntries(entries ...string) string {
+	return "# Knowledge Base: test-container\n\n## Service History\n" + strings.Join(entries, "")
+}
+
+// TestPruneEntries_DashesInsideAnalysisStayOneEntry pins that a "---" line
+// written by the LLM inside an analysis does not split the entry.
+func TestPruneEntries_DashesInsideAnalysisStayOneEntry(t *testing.T) {
+	old := time.Now().Add(-40 * 24 * time.Hour).Format(time.RFC3339)
+	recent := time.Now().Add(-10 * 24 * time.Hour).Format(time.RFC3339)
+
+	oldEntry := "\n### Scan: " + old + "\n**Status:** 🟢 Healthy\n\nOLD-PART-ONE\n\n---\n\nOLD-PART-TWO\n\n---\n"
+	freshEntry := "\n### Scan: " + recent + "\n**Status:** 🟢 Healthy\n\nFRESH-PART-ONE\n\n---\n\nFRESH-PART-TWO\n\n---\n"
+
+	result := pruneEntries(kbWithEntries(oldEntry, freshEntry), 30*24*time.Hour)
+
+	if strings.Contains(result, "OLD-PART-ONE") || strings.Contains(result, "OLD-PART-TWO") {
+		t.Errorf("expired entry must be removed whole, got:\n%s", result)
+	}
+	if want := kbWithEntries(freshEntry); result != want {
+		t.Errorf("pruneEntries() =\n%q\nwant\n%q", result, want)
+	}
+	if n := strings.Count(result, "FRESH-PART-TWO"); n != 1 {
+		t.Errorf("fresh entry tail should appear exactly once, got %d", n)
+	}
+}
+
+// TestPruneEntries_FakeScanHeadingIsNotABoundary pins that "### Scan: summary"
+// (not an RFC3339 timestamp) inside an entry does not start a new entry.
+func TestPruneEntries_FakeScanHeadingIsNotABoundary(t *testing.T) {
+	old := time.Now().Add(-40 * 24 * time.Hour).Format(time.RFC3339)
+	recent := time.Now().Add(-10 * 24 * time.Hour).Format(time.RFC3339)
+
+	oldEntry := "\n### Scan: " + old + "\n**Status:** 🟢 Healthy\n\nOLD-A\n\n### Scan: summary\n\nOLD-B\n\n---\n"
+	freshEntry := "\n### Scan: " + recent + "\n**Status:** 🟢 Healthy\n\nFRESH-A\n\n### Scan: summary\n\nFRESH-B\n\n---\n"
+
+	result := pruneEntries(kbWithEntries(freshEntry, oldEntry), 30*24*time.Hour)
+
+	if want := kbWithEntries(freshEntry); result != want {
+		t.Errorf("pruneEntries() =\n%q\nwant\n%q", result, want)
+	}
+	if strings.Contains(result, "OLD-A") || strings.Contains(result, "OLD-B") {
+		t.Errorf("expired entry must be removed whole, got:\n%s", result)
+	}
+}
+
+// TestPruneEntries_LegacyFragmentsCleanedUp pins cleanup of legacy files in
+// which an entry was split by an inner "---" into a timestamped head and an
+// orphan fragment, plus junk before the first entry.
+func TestPruneEntries_LegacyFragmentsCleanedUp(t *testing.T) {
+	old := time.Now().Add(-40 * 24 * time.Hour).Format(time.RFC3339)
+	recent := time.Now().Add(-10 * 24 * time.Hour).Format(time.RFC3339)
+
+	content := "# Knowledge Base: test-container\n\n## Service History\n" +
+		"LEADING-JUNK\n---\n" +
+		"\n### Scan: " + old + "\n**Status:** 🟢 Healthy\n\nOLD-HEAD\n\n---\n" +
+		"\nORPHAN-FRAGMENT\n\n---\n" +
+		"\n### Scan: " + recent + "\n**Status:** 🟢 Healthy\n\nFRESH\n\n---\n"
+
+	result := pruneEntries(content, 30*24*time.Hour)
+
+	for _, gone := range []string{"LEADING-JUNK", "OLD-HEAD", "ORPHAN-FRAGMENT"} {
+		if strings.Contains(result, gone) {
+			t.Errorf("%q should be removed, got:\n%s", gone, result)
+		}
+	}
+	want := kbWithEntries("\n### Scan: " + recent + "\n**Status:** 🟢 Healthy\n\nFRESH\n\n---\n")
+	if result != want {
+		t.Errorf("pruneEntries() =\n%q\nwant\n%q", result, want)
+	}
+}
+
+func TestSplitEntries(t *testing.T) {
+	ts1 := "2026-01-01T00:00:00Z"
+	ts2 := "2026-01-02T00:00:00Z"
+
+	t.Run("empty", func(t *testing.T) {
+		if got := splitEntries(""); len(got) != 0 {
+			t.Errorf("splitEntries(\"\") = %q, want none", got)
+		}
+	})
+	t.Run("no boundaries", func(t *testing.T) {
+		if got := splitEntries("junk\n---\nmore\n"); len(got) != 0 {
+			t.Errorf("want none, got %q", got)
+		}
+	})
+	t.Run("CRLF and trailing whitespace", func(t *testing.T) {
+		in := "### Scan: " + ts1 + " \r\nA\r\n\r\n### Scan: " + ts2 + "\r\nB\r\n"
+		got := splitEntries(in)
+		if len(got) != 2 || got[0] != "### Scan: "+ts1+" \r\nA\r\n" || got[1] != "\r\n### Scan: "+ts2+"\r\nB\r\n" {
+			t.Errorf("unexpected split: %q", got)
+		}
+	})
+	t.Run("malformed timestamp is not a boundary", func(t *testing.T) {
+		in := "\n### Scan: " + ts1 + "\nA\n### Scan: 2026-13-45T00:00:00Z\nB\n"
+		got := splitEntries(in)
+		if len(got) != 1 || got[0] != in {
+			t.Errorf("unexpected split: %q", got)
+		}
+	})
+	t.Run("heading with trailing text is not a boundary", func(t *testing.T) {
+		in := "\n### Scan: " + ts1 + "\nA\n### Scan: " + ts2 + " extra\nB\n"
+		if got := splitEntries(in); len(got) != 1 {
+			t.Errorf("want 1 entry, got %q", got)
+		}
+	})
 }
