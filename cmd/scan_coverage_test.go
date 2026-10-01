@@ -18,7 +18,7 @@ import (
 
 // TestProcessContainers_Success tests successful container processing
 func TestProcessContainers_Success(t *testing.T) {
-	t.Parallel()
+	withScanLLMMock(t, &fakeScanLLM{analysis: "all good"})
 
 	scanCfg := newTestScanConfig()
 	scanCfg.verbose = false
@@ -62,16 +62,25 @@ func TestProcessContainers_Success(t *testing.T) {
 
 	results, stats := processContainers(ctx, mockDocker, st, containers, cfg, scanCfg, 0)
 
-	if len(results) != 0 {
-		t.Errorf("Expected 0 results without LLM, got %d", len(results))
+	if len(results) != 1 || results["container1"] == nil {
+		t.Errorf("Expected 1 result for container1, got %v", results)
 	}
 
 	if stats.scannedContainers != 1 {
 		t.Errorf("Expected 1 scanned container, got %d", stats.scannedContainers)
 	}
 
+	if stats.failedContainers != 0 {
+		t.Errorf("Expected 0 failed containers, got %d", stats.failedContainers)
+	}
+
 	if stats.totalLogs != 1 {
 		t.Errorf("Expected 1 total logs, got %d", stats.totalLogs)
+	}
+
+	want := time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC)
+	if got, _ := st.GetLastScan(containers[0].ID); !got.Equal(want) {
+		t.Errorf("Cursor = %v, want %v", got, want)
 	}
 }
 
@@ -504,7 +513,7 @@ func TestSaveStateIfNeeded_VerboseMode(t *testing.T) {
 
 // TestProcessContainers_MultipleContainers tests processing multiple containers
 func TestProcessContainers_MultipleContainers(t *testing.T) {
-	t.Parallel()
+	withScanLLMMock(t, &fakeScanLLM{analysis: "all good"})
 
 	scanCfg := newTestScanConfig()
 	scanCfg.verbose = false
@@ -554,14 +563,29 @@ func TestProcessContainers_MultipleContainers(t *testing.T) {
 	_ = os.MkdirAll(cfg.Output.ReportsDir, 0750)
 	_ = os.MkdirAll(cfg.Output.KnowledgeBaseDir+"/services", 0750)
 
-	_, stats := processContainers(ctx, mockDocker, st, containers, cfg, scanCfg, 0)
+	results, stats := processContainers(ctx, mockDocker, st, containers, cfg, scanCfg, 0)
+
+	if len(results) != 3 {
+		t.Errorf("Expected 3 results, got %d", len(results))
+	}
 
 	if stats.scannedContainers != 3 {
 		t.Errorf("Expected 3 scanned containers, got %d", stats.scannedContainers)
 	}
 
+	if stats.failedContainers != 0 {
+		t.Errorf("Expected 0 failed containers, got %d", stats.failedContainers)
+	}
+
 	if stats.totalLogs != 3 {
 		t.Errorf("Expected 3 total logs, got %d", stats.totalLogs)
+	}
+
+	want := time.Date(2023, 1, 1, 10, 0, 0, 0, time.UTC)
+	for _, c := range containers {
+		if got, _ := st.GetLastScan(c.ID); !got.Equal(want) {
+			t.Errorf("Cursor for %s = %v, want %v", c.Name, got, want)
+		}
 	}
 }
 
