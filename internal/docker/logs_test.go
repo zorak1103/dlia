@@ -522,6 +522,100 @@ func TestParseLogStream_HeaderOnlyEightByteLine(t *testing.T) {
 	assert.Equal(t, string(header), entries[0].Message)
 }
 
+// TestDropEntriesAtOrBefore pins the inclusive-since filter: entries with a
+// parsed timestamp at or before since are dropped, entries with an empty or
+// unparseable timestamp are never dropped, and the input order is preserved.
+func TestDropEntriesAtOrBefore(t *testing.T) {
+	since, err := time.Parse(time.RFC3339Nano, "2025-01-01T10:00:00.000000000Z")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		entries []LogEntry
+		want    []string // messages of the kept entries, in input order
+	}{
+		{
+			name:    "empty input",
+			entries: nil,
+			want:    []string{},
+		},
+		{
+			name: "entry exactly at since is dropped",
+			entries: []LogEntry{
+				{Timestamp: "2025-01-01T10:00:00.000000000Z", Message: "boundary"},
+			},
+			want: []string{},
+		},
+		{
+			name: "entry one nanosecond after since is kept",
+			entries: []LogEntry{
+				{Timestamp: "2025-01-01T10:00:00.000000001Z", Message: "after"},
+			},
+			want: []string{"after"},
+		},
+		{
+			name: "entry one nanosecond before since is dropped",
+			entries: []LogEntry{
+				{Timestamp: "2025-01-01T09:59:59.999999999Z", Message: "before"},
+			},
+			want: []string{},
+		},
+		{
+			name: "unparseable timestamp is kept",
+			entries: []LogEntry{
+				{Timestamp: "not-a-time", Message: "msg"},
+			},
+			want: []string{"msg"},
+		},
+		{
+			name: "empty timestamp is kept",
+			entries: []LogEntry{
+				{Timestamp: "", Message: "plain line"},
+			},
+			want: []string{"plain line"},
+		},
+		{
+			name: "RFC3339 without nanos parses and is dropped when at since",
+			entries: []LogEntry{
+				{Timestamp: "2025-01-01T10:00:00Z", Message: "second precision"},
+			},
+			want: []string{},
+		},
+		{
+			name: "all dropped yields empty slice",
+			entries: []LogEntry{
+				{Timestamp: "2025-01-01T09:00:00Z", Message: "old one"},
+				{Timestamp: "2025-01-01T09:30:00Z", Message: "old two"},
+			},
+			want: []string{},
+		},
+		{
+			name: "order preserved, no sorting",
+			entries: []LogEntry{
+				{Timestamp: "2025-01-01T10:00:02Z", Message: "third"},
+				{Timestamp: "2025-01-01T10:00:00.000000000Z", Message: "boundary"},
+				{Timestamp: "2025-01-01T10:00:01Z", Message: "second"},
+				{Timestamp: "not-a-time", Message: "unparseable"},
+				{Timestamp: "", Message: "plain"},
+				{Timestamp: "2025-01-01T10:00:03Z", Message: "fourth"},
+			},
+			want: []string{"third", "second", "unparseable", "plain", "fourth"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := dropEntriesAtOrBefore(tt.entries, since)
+
+			messages := make([]string, len(got))
+			for i, entry := range got {
+				messages[i] = entry.Message
+			}
+			assert.Equal(t, tt.want, messages)
+		})
+	}
+}
+
 // TestGetLatestLogTime_ParseErrorEntryIndex pins the entry index in the
 // parse-error message: the zero-based index of the last entry.
 func TestGetLatestLogTime_ParseErrorEntryIndex(t *testing.T) {

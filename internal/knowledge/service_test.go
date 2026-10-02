@@ -789,6 +789,30 @@ func TestTruncate(t *testing.T) {
 			maxLen: 0,
 			want:   "...",
 		},
+		{
+			name:   "umlauts truncated",
+			input:  "äöü",
+			maxLen: 2,
+			want:   "äö...",
+		},
+		{
+			name:   "umlauts exact length",
+			input:  "äöü",
+			maxLen: 3,
+			want:   "äöü",
+		},
+		{
+			name:   "emoji truncated",
+			input:  "😀😀",
+			maxLen: 1,
+			want:   "😀...",
+		},
+		{
+			name:   "ascii truncated unchanged",
+			input:  "abcdef",
+			maxLen: 3,
+			want:   "abc...",
+		},
 	}
 
 	for _, tt := range tests {
@@ -992,6 +1016,57 @@ func TestUpdateServiceKB_KeepsRecentEntriesWithinRetention(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "fresh analysis") {
 		t.Errorf("new entry should be appended, got:\n%s", data)
+	}
+}
+
+// TestUpdateServiceKB_CRLFFile_PrunedAndNormalized pins that a CRLF knowledge
+// base is normalized to LF on read, so retention pruning finds the header
+// marker and expired entries are removed; the file self-heals to LF.
+func TestUpdateServiceKB_CRLFFile_PrunedAndNormalized(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &config.Config{
+		Output: config.OutputConfig{
+			KnowledgeBaseDir:       tmpDir,
+			KnowledgeRetentionDays: 30,
+		},
+	}
+
+	expired := time.Now().Add(-40 * 24 * time.Hour).Format(time.RFC3339)
+	recent := time.Now().Add(-10 * 24 * time.Hour).Format(time.RFC3339)
+	existing := "# Knowledge Base: web-app\r\n\r\n## Service History\r\n\r\n### Scan: " + expired +
+		"\r\n**Status:** 🟢 Healthy\r\n\r\nexpired entry\r\n\r\n---\r\n" +
+		"\r\n### Scan: " + recent +
+		"\r\n**Status:** 🟢 Healthy\r\n\r\nrecent entry\r\n\r\n---\r\n"
+	kbPath := filepath.Join(tmpDir, "services", "web-app.md")
+	if err := os.MkdirAll(filepath.Dir(kbPath), 0o750); err != nil {
+		t.Fatalf("failed to create services dir: %v", err)
+	}
+	if err := os.WriteFile(kbPath, []byte(existing), 0o600); err != nil {
+		t.Fatalf("failed to write existing KB file: %v", err)
+	}
+
+	if err := UpdateServiceKB("web-app", &chunking.AnalyzeResult{Analysis: "fresh analysis"}, cfg); err != nil {
+		t.Fatalf("UpdateServiceKB() error = %v", err)
+	}
+
+	data, err := os.ReadFile(kbPath)
+	if err != nil {
+		t.Fatalf("failed to read KB file: %v", err)
+	}
+	if strings.Contains(string(data), "\r") {
+		t.Errorf("CRLF file should be normalized to LF, still contains \\r:\n%s", data)
+	}
+	if strings.Contains(string(data), "expired entry") {
+		t.Errorf("expired entry should be pruned, got:\n%s", data)
+	}
+	if !strings.Contains(string(data), "recent entry") {
+		t.Errorf("entry within retention should survive, got:\n%s", data)
+	}
+	if !strings.Contains(string(data), "fresh analysis") {
+		t.Errorf("new entry should be appended, got:\n%s", data)
+	}
+	if !strings.Contains(string(data), "## Service History\n") {
+		t.Errorf("LF header marker should be present, got:\n%s", data)
 	}
 }
 

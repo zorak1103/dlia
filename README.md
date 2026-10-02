@@ -421,7 +421,7 @@ Before container logs are sent to the LLM, DLIA masks IP addresses and common se
 - `Authorization:` headers: the rest of the header line is masked (`Authorization: Basic dXNlcjpwYXNz` becomes `Authorization: <SECRET>`)
 - Bearer tokens (`Bearer abc.def-123` becomes `Bearer <SECRET>`)
 - Credentials in URLs (`https://user:pass@host` becomes `https://<SECRET>@host`)
-- Values of `password`, `passwd`, `pwd`, `secret`, `token`, `apikey`, `api_key`/`api-key`, `access_key`, `private_key`, `client_secret` and `secret_key`/`secret_access_key` (dash or underscore, any case), as `key=value`, `key: value` or JSON (`"password":"hunter2"`). Keys with a prefix such as `access_token`, `db_password`, `AWS_SECRET_ACCESS_KEY` or `X-API-Key` match too. `tokens_used`, `secretary`, `keyboard` and `cache_key_count` do not (a bare `key` is not a key name).
+- Values of `password`, `passwd`, `pwd`, `secret`, `token`, `apikey`, `api_key`/`api-key`, `access_key`, `private_key`, `client_secret`, `secret_key`/`secret_access_key` and `secret_key_base` (dash or underscore, any case), as `key=value`, `key: value` or JSON (`"password":"hunter2"`). Keys with a prefix such as `access_token`, `db_password`, `AWS_SECRET_ACCESS_KEY` or `X-API-Key` match too. `tokens_used`, `secretary`, `keyboard` and `cache_key_count` do not (a bare `key` is not a key name).
 
 **What is masked as `<IP-n>`:** IPv4 and IPv6 addresses with the number `n` counting from 1 in order of first appearance. Addresses with a port or in brackets are recognized; the port and brackets stay in the text, and a zone ID is masked together with the address. Numbering is per written form within one container scan, so `::ffff:10.0.0.1` and `10.0.0.1`, or a compressed and an expanded IPv6 form of the same address, may get different numbers.
 
@@ -638,8 +638,10 @@ The shipped `docker-compose.yml` puts [linuxserver/socket-proxy](https://github.
 If the proxy denies a request (HTTP 403), for example because `ALLOW_LOGS=1` is missing, DLIA's error says so:
 
 ```
-failed to read logs for container abc123: ... (socket proxy denied the request: enable CONTAINERS=1 and ALLOW_LOGS=1, see README)
+failed to read logs for container abc123: ... (socket proxy may have denied the request: enable CONTAINERS=1 and ALLOW_LOGS=1, see README)
 ```
+
+The hint appears when DLIA reaches the daemon over the network (`tcp://`, the socket-proxy setup); a local `unix://` or `npipe://` socket gets no hint, because a 403 from a local daemon is not a proxy misconfiguration.
 
 Never publish the proxy's port 2375. The `socket-proxy` network is `internal`, so only DLIA can reach it. DLIA also joins the `default` network to reach the LLM API and notification services.
 

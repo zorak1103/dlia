@@ -128,7 +128,8 @@ func TestProcessContainers_NoLogs(t *testing.T) {
 	}
 }
 
-// TestProcessContainers_LogReadError tests error reading logs
+// TestProcessContainers_LogReadError tests that a failed Docker log read counts
+// the container as scanned and failed (like a failed analysis).
 func TestProcessContainers_LogReadError(t *testing.T) {
 	t.Parallel()
 
@@ -165,8 +166,16 @@ func TestProcessContainers_LogReadError(t *testing.T) {
 		t.Errorf("Expected 0 results, got %d", len(results))
 	}
 
-	if stats.scannedContainers != 0 {
-		t.Errorf("Expected 0 scanned containers due to error, got %d", stats.scannedContainers)
+	if stats.scannedContainers != 1 {
+		t.Errorf("Expected 1 scanned container (read failure counts as scanned), got %d", stats.scannedContainers)
+	}
+
+	if stats.failedContainers != 1 {
+		t.Errorf("Expected 1 failed container, got %d", stats.failedContainers)
+	}
+
+	if len(stats.failedNames) != 1 || stats.failedNames[0] != "container1" {
+		t.Errorf("Expected failedNames [container1], got %v", stats.failedNames)
 	}
 }
 

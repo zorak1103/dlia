@@ -100,6 +100,13 @@ func ParseThreshold(s string) (Level, error) {
 // and a trailing period is permitted after the value.
 var severityLineRe = regexp.MustCompile(`(?i)^\s*[*_` + "`" + `]*\s*SEVERITY\s*[*_` + "`" + `]*\s*:\s*[*_` + "`" + `]*\s*([a-z]+)\s*[*_` + "`" + `.]*\s*$`)
 
+// openFenceRe matches an opening code fence, with optional info string
+// (language tag), optionally indented.
+var openFenceRe = regexp.MustCompile("^[ \\t]*```[ \\t]*[A-Za-z0-9_-]*[ \\t]*$")
+
+// closeFenceRe matches a bare closing code fence.
+var closeFenceRe = regexp.MustCompile("^[ \\t]*```[ \\t]*$")
+
 // looseSeverityRe matches any line that looks like an attempt at a severity line, including
 // malformed ones (e.g. "SEVERITY: critical (disk full)" or "Severity Level: critical").
 var looseSeverityRe = regexp.MustCompile(`(?i)^\s*[*_` + "`" + `]*\s*SEVERITY\b[^:\n]{0,20}:`)
@@ -118,7 +125,8 @@ func parseValue(raw string) (Level, bool) {
 	}
 }
 
-// Parse scans text for a SEVERITY line and returns the level and cleaned text.
+// Parse scans text for a SEVERITY line and returns the level, the cleaned
+// text, and whether a line was found and removed.
 //
 // Only the last matching line is removed. If no line matches, Unknown is returned
 // and the original text is returned unchanged. If the last match has an unrecognised
@@ -127,7 +135,17 @@ func parseValue(raw string) (Level, bool) {
 // Unknown is returned and the text is left unchanged so the malformed line stays
 // visible. Trailing whitespace is trimmed from the returned text (but only when a
 // SEVERITY line was found and removed).
-func Parse(text string) (level Level, cleaned string) {
+//
+// When the removed severity line was wrapped in an empty code fence pair that
+// trails the text (only blank lines inside the pair and after the closing fence),
+// the whole pair is removed as well. Fences with real content between them,
+// unclosed fences, and a closing fence without an opening one are left as-is.
+//
+// found is true exactly when the strict-match branch removed a line — including
+// an unrecognised value (e.g. "SEVERITY: banana") — and false otherwise. It is
+// deliberately not derived from the level, which is Unknown for removed but
+// unrecognised values.
+func Parse(text string) (level Level, cleaned string, found bool) {
 	lines := strings.Split(text, "\n")
 
 	lastMatchIdx := -1
@@ -149,16 +167,69 @@ func Parse(text string) (level Level, cleaned string) {
 
 	if lastMatchIdx == -1 || lastLooseIdx > lastMatchIdx {
 		// No well-formed final SEVERITY line; return original text unchanged.
-		return Unknown, text
+		return Unknown, text, false
 	}
 
 	level, _ = parseValue(lastRaw)
 
-	// Remove the last matching line and rejoin.
-	kept := make([]string, 0, len(lines)-1)
-	kept = append(kept, lines[:lastMatchIdx]...)
-	kept = append(kept, lines[lastMatchIdx+1:]...)
+	// Remove the last matching line; also drop a now-empty fence pair directly
+	// around it when the pair trails the text.
+	start, end, fenced := emptyFenceExtent(lines, lastMatchIdx)
+	if !fenced {
+		start, end = lastMatchIdx, lastMatchIdx
+	}
+
+	kept := make([]string, 0, len(lines)-(end-start+1))
+	kept = append(kept, lines[:start]...)
+	kept = append(kept, lines[end+1:]...)
 	cleaned = strings.TrimRight(strings.Join(kept, "\n"), " \t\r\n")
 
-	return level, cleaned
+	return level, cleaned, true
+}
+
+// emptyFenceExtent reports the removal extent for an empty code fence directly
+// surrounding the removed SEVERITY line at sevIdx: it returns the opening and
+// closing fence indices when both exist, only whitespace-only lines sit between
+// them, and the closing fence is the last non-blank line.
+func emptyFenceExtent(lines []string, sevIdx int) (start, end int, ok bool) {
+	blank := func(line string) bool {
+		return strings.TrimSpace(strings.TrimRight(line, "\r")) == ""
+	}
+
+	// Extend downward from sevIdx over blank lines; the next non-blank line must
+	// match closeFenceRe, and only blank lines may follow it ("immediately trailing").
+	closingIdx := -1
+	for i := sevIdx + 1; i < len(lines); i++ {
+		if blank(lines[i]) {
+			continue
+		}
+		if closeFenceRe.MatchString(strings.TrimRight(lines[i], "\r")) {
+			closingIdx = i
+		}
+		break
+	}
+	if closingIdx >= 0 {
+		for i := closingIdx + 1; i < len(lines); i++ {
+			if !blank(lines[i]) {
+				return 0, 0, false
+			}
+		}
+	}
+	if closingIdx == -1 {
+		return 0, 0, false
+	}
+
+	// Extend upward from sevIdx over blank lines; the previous non-blank line
+	// must match openFenceRe (bare ``` or ```text).
+	for i := sevIdx - 1; i >= 0; i-- {
+		if blank(lines[i]) {
+			continue
+		}
+		if openFenceRe.MatchString(strings.TrimRight(lines[i], "\r")) {
+			return i, closingIdx, true
+		}
+		return 0, 0, false
+	}
+
+	return 0, 0, false
 }

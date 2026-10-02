@@ -3,7 +3,9 @@ package chunking
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/zorak1103/dlia/internal/anonymize"
 	"github.com/zorak1103/dlia/internal/config"
@@ -34,6 +36,11 @@ const (
 	// when the tokenizer is only an estimate (unknown model, cl100k_base fallback).
 	EstimateBudgetPercent = 80
 )
+
+// ErrSeverityOnlyAnswer is matched by errors.Is when the LLM answer contained
+// a SEVERITY line but no analysis text. Such an answer is counted as a failed
+// analysis (retried next scan) instead of shipping an empty report.
+var ErrSeverityOnlyAnswer = errors.New("model returned only a severity line")
 
 // Pipeline orchestrates the log processing pipeline
 type Pipeline struct {
@@ -266,7 +273,12 @@ func (p *Pipeline) analyzeByBudget(ctx context.Context, containerName string, pr
 	}
 
 	if result.ChunksUsed > 0 {
-		result.Severity, result.Analysis = severity.Parse(result.Analysis)
+		level, cleaned, found := severity.Parse(result.Analysis)
+		if found && strings.TrimSpace(cleaned) == "" {
+			return nil, fmt.Errorf("analysis for container %s empty: %w",
+				containerName, ErrSeverityOnlyAnswer)
+		}
+		result.Severity, result.Analysis = level, cleaned
 	}
 
 	return result, nil

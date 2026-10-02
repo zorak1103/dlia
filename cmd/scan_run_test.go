@@ -846,3 +846,46 @@ func TestRunScan_IncompleteAnswer_CountedAsFailed(t *testing.T) {
 	require.NoError(t, readErr)
 	assert.Contains(t, string(data), severity.FailedLabel)
 }
+
+func TestRunScan_ReadError_CountedAsFailed(t *testing.T) {
+	env := setupScanRunTest(t)
+	cfg.Notification.Enabled = true
+	fn := &fakeNotifier{enabled: true}
+	withFakeNotifier(t, fn)
+	withScanDockerMock(t, &MockDockerClient{
+		containers: []docker.Container{scanContainer()},
+		logsErr:    errors.New("logs error"),
+	}, nil)
+
+	err := runScan(newScanRunCmd(), []string{})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{scanContainer().Name}, fn.lastFailed)
+	assert.Equal(t, severity.Unknown, fn.lastOverall)
+	assert.Equal(t, 1, fn.lastCount)
+
+	// global_summary.md must still be written containing the failed row
+	data, err2 := os.ReadFile(filepath.Join(env.kbDir, "global_summary.md"))
+	require.NoError(t, err2)
+	assert.Contains(t, string(data), severity.FailedLabel)
+}
+
+func TestRunScan_SeverityOnlyAnswer_CountedAsFailed(t *testing.T) {
+	env := setupScanRunTest(t)
+	cfg.Notification.Enabled = true
+	fn := &fakeNotifier{enabled: true}
+	withFakeNotifier(t, fn)
+	withScanDockerMock(t, &MockDockerClient{
+		containers: []docker.Container{scanContainer()},
+		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
+	}, nil)
+	withScanLLMMock(t, &fakeScanLLM{analysis: "SEVERITY: ok"})
+
+	err := runScan(newScanRunCmd(), []string{})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{scanContainer().Name}, fn.lastFailed)
+	data, readErr := os.ReadFile(filepath.Join(env.kbDir, "global_summary.md"))
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), severity.FailedLabel)
+}

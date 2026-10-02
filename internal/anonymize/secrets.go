@@ -8,7 +8,7 @@ import (
 const secretPlaceholder = "<SECRET>"
 
 const kvKey = `(?i)\b([a-z0-9_-]*(?:password|passwd|pwd|secret|token|` +
-	`api[-_]?key|access[-_]?key|private[-_]?key|client[-_]?secret|secret[-_]?(?:access[-_]?)?key))\b`
+	`api[-_]?key|access[-_]?key|private[-_]?key|client[-_]?secret|secret[-_]?(?:access[-_]?)?key(?:[-_]?base)?))\b`
 
 // kvSep allows a quoted (or backslash-escaped quoted) key before the separator.
 const kvSep = `(\\?["']?[ \t]*[:=][ \t]*)`
