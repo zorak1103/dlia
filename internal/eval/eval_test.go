@@ -171,17 +171,38 @@ func firstRunes(s string, n int) string {
 	return string(r[:n]) + "..."
 }
 
-func envPositiveInt(t *testing.T, name string, def int) int {
-	t.Helper()
-	v := os.Getenv(name)
+func parseIntMin(name, v string, def, minimum int) (int, error) {
 	if v == "" {
-		return def
+		return def, nil
 	}
 	n, err := strconv.Atoi(v)
-	if err != nil || n < 1 {
-		t.Fatalf("%s must be an integer >= 1, got %q", name, v)
+	if err != nil || n < minimum {
+		return 0, fmt.Errorf("%s must be an integer >= %d, got %q", name, minimum, v)
+	}
+	return n, nil
+}
+
+func envIntMin(t *testing.T, name string, def, minimum int) int {
+	t.Helper()
+	n, err := parseIntMin(name, os.Getenv(name), def, minimum)
+	if err != nil {
+		t.Fatalf("%v", err)
 	}
 	return n
+}
+
+func TestParseIntMin(t *testing.T) {
+	if n, err := parseIntMin("X", "", 7, 1); err != nil || n != 7 {
+		t.Errorf("empty value: got %d, %v; want default 7", n, err)
+	}
+	if n, err := parseIntMin("X", "5625", 7, config.MinContextWindow); err != nil || n != 5625 {
+		t.Errorf("value at minimum: got %d, %v; want 5625", n, err)
+	}
+	for _, v := range []string{"5624", "0", "abc"} {
+		if _, err := parseIntMin("X", v, 7, config.MinContextWindow); err == nil {
+			t.Errorf("value %q should be rejected", v)
+		}
+	}
 }
 
 func TestEval(t *testing.T) {
@@ -198,8 +219,8 @@ func TestEval(t *testing.T) {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
-	ctxWindow := envPositiveInt(t, "DLIA_LLM_CONTEXT_WINDOW", config.DefaultContextWindow)
-	runs := envPositiveInt(t, "DLIA_EVAL_RUNS", 1)
+	ctxWindow := envIntMin(t, "DLIA_LLM_CONTEXT_WINDOW", config.DefaultContextWindow, config.MinContextWindow)
+	runs := envIntMin(t, "DLIA_EVAL_RUNS", 1, 1)
 
 	cfg := &config.Config{LLM: config.LLMConfig{
 		BaseURL:               baseURL,

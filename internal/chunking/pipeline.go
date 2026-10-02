@@ -19,6 +19,8 @@ const (
 
 	// SystemPromptReserveTokens accounts for the system prompt overhead in token calculations.
 	// This estimate is based on typical prompt templates and may need adjustment for custom prompts.
+	// It also has to cover the untrusted-data rule appended to every system prompt (~170 tokens),
+	// which custom prompts do not include themselves.
 	SystemPromptReserveTokens = 500
 
 	// ChunkSizeDivisor controls how conservatively we size chunks relative to available tokens.
@@ -192,7 +194,9 @@ func (p *Pipeline) AnalyzeLogs(ctx context.Context, containerName string, logs [
 	// Step 3: Load container-specific ignore patterns (error returns empty string, which is valid)
 	ignoreInstructions, _ := config.GetIgnoreInstructions(containerName, p.ignoreDir) //nolint:errcheck // Error returns empty string, which is valid
 
-	// Prompt with empty logs: only used to size the token budget.
+	// Prompt with empty logs: only used to size the token budget. The marker has a fixed
+	// length, so this estimate matches the real call within a few tokens (the random hex
+	// tokenizes variably).
 	base, err := p.promptLoader.AnalysisMessages(containerName, ignoreInstructions, "", len(processedLogs))
 	if err != nil {
 		return nil, fmt.Errorf("failed to load analysis prompt: %w", err)

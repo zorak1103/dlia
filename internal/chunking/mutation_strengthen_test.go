@@ -269,7 +269,8 @@ func TestPipeline_DirectPathWhenBudgetAllows(t *testing.T) {
 
 // newForcedChunkedPipeline builds a pipeline whose budget only allows two
 // small chunks (independent of the embedded prompt sizes): available tokens
-// 140, chunk size 70, so threeLogs() splits 2+1.
+// 140, chunk size 70, so threeLogs() splits 2+1. A larger system prompt (for
+// example ignore instructions) shrinks the chunk budget and yields more chunks.
 func newForcedChunkedPipeline(t *testing.T, tok TokenizerInterface, client AnalysisClient) (*Pipeline, int) {
 	t.Helper()
 	loader := prompts.NewPromptLoader(&config.Config{})
