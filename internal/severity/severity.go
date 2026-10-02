@@ -122,8 +122,11 @@ func parseValue(raw string) (Level, bool) {
 //
 // Only the last matching line is removed. If no line matches, Unknown is returned
 // and the original text is returned unchanged. If the last match has an unrecognised
-// value, Unknown is returned and that line is still removed. If a malformed severity-like line\n// appears after the last strict match (or no strict match exists), Unknown is returned and the\n// text is left unchanged so the malformed line stays visible. Trailing whitespace is
-// trimmed from the returned text (but only when a SEVERITY line was found).
+// value, Unknown is returned and that line is still removed. If a malformed
+// severity-like line appears after the last strict match (or no strict match exists),
+// Unknown is returned and the text is left unchanged so the malformed line stays
+// visible. Trailing whitespace is trimmed from the returned text (but only when a
+// SEVERITY line was found and removed).
 func Parse(text string) (level Level, cleaned string) {
 	lines := strings.Split(text, "\n")
 
