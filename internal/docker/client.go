@@ -173,7 +173,11 @@ func (w *dockerClientWrapper) ReadLogsSince(ctx context.Context, containerID str
 	// Close reader after parsing; error not actionable in defer context as stream is already consumed
 	defer func() { _ = reader.Close() }()
 
-	return parseLogStream(reader)
+	entries, err := parseLogStream(reader)
+	if err != nil {
+		return nil, err
+	}
+	return dropEntriesAtOrBefore(entries, since), nil
 }
 
 func (w *dockerClientWrapper) ReadLogsLookback(ctx context.Context, containerID string, lookback time.Duration) ([]LogEntry, error) {

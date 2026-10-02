@@ -82,6 +82,37 @@ func parseLogLine(line string) *LogEntry {
 	}
 }
 
+// parseLogTimestamp parses a Docker log entry timestamp, trying RFC3339Nano
+// first and falling back to RFC3339.
+func parseLogTimestamp(s string) (time.Time, error) {
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		t, err = time.Parse(time.RFC3339, s)
+		if err != nil {
+			return time.Time{}, err
+		}
+	}
+	return t, nil
+}
+
+// dropEntriesAtOrBefore drops every entry whose parsed timestamp is at or
+// before since. Entries with an empty or unparseable timestamp are kept (a
+// parse failure never drops a line). Order is preserved, no sorting.
+func dropEntriesAtOrBefore(entries []LogEntry, since time.Time) []LogEntry {
+	kept := make([]LogEntry, 0, len(entries))
+	for _, entry := range entries {
+		ts, err := parseLogTimestamp(entry.Timestamp)
+		if err != nil {
+			kept = append(kept, entry)
+			continue
+		}
+		if ts.After(since) {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
+
 // GetLatestLogTime returns the timestamp of the most recent log entry
 func GetLatestLogTime(entries []LogEntry) (time.Time, error) {
 	if len(entries) == 0 {
@@ -95,13 +126,9 @@ func GetLatestLogTime(entries []LogEntry) (time.Time, error) {
 	}
 
 	// Parse the timestamp
-	t, err := time.Parse(time.RFC3339Nano, lastEntry.Timestamp)
+	t, err := parseLogTimestamp(lastEntry.Timestamp)
 	if err != nil {
-		// Try alternative formats
-		t, err = time.Parse(time.RFC3339, lastEntry.Timestamp)
-		if err != nil {
-			return time.Time{}, fmt.Errorf("failed to parse timestamp '%s' in log entry %d: %w", lastEntry.Timestamp, len(entries)-1, err)
-		}
+		return time.Time{}, fmt.Errorf("failed to parse timestamp '%s' in log entry %d: %w", lastEntry.Timestamp, len(entries)-1, err)
 	}
 
 	return t, nil

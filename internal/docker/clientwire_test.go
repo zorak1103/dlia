@@ -372,19 +372,43 @@ func TestClientWire_ReadLogsSince_HTTPError(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to read logs for container abc123def4567890")
 }
 
+// TestClientWire_ReadLogsSince_DropsBoundaryEntry pins the client-side
+// inclusive-since filter: an entry whose timestamp equals since is dropped
+// even though the daemon's since filter re-delivers it.
+func TestClientWire_ReadLogsSince_DropsBoundaryEntry(t *testing.T) {
+	fake := newFakeDockerDaemon(t, func(f *fakeDockerDaemon) {
+		f.logsBody = "2025-01-01T10:00:00.000000000Z boundary\n2025-01-01T10:00:00.000000001Z after\n"
+	})
+	c, err := NewClient(fake.server.URL)
+	require.NoError(t, err)
+
+	since := time.Date(2025, 1, 1, 10, 0, 0, 0, time.UTC)
+	entries, err := c.ReadLogsSince(t.Context(), "abc123def4567890", since)
+	require.NoError(t, err)
+
+	require.Len(t, entries, 1)
+	assert.Equal(t, "2025-01-01T10:00:00.000000001Z", entries[0].Timestamp)
+	assert.Equal(t, "after", entries[0].Message)
+}
+
 // TestClientWire_ReadLogsLookback_SinceArithmetic pins the lookback
 // arithmetic: the wire `since` param must be now-minus-lookback (guards the
 // INVERT_NEGATIVES and ARITHMETIC_BASE mutant classes), within a one-second
 // tolerance for clock movement between the call and the assertion.
+// The fake body is dated relative to the test clock so both entries sit after
+// since = now-lookback and survive the dropEntriesAtOrBefore filter.
 // Note: docker client v28 converts the RFC3339Nano Since option to a Unix
 // epoch float on the wire (timetypes.GetTimestamp); we pin the epoch value.
 func TestClientWire_ReadLogsLookback_SinceArithmetic(t *testing.T) {
-	fake := newFakeDockerDaemon(t, nil)
+	lookback := 2 * time.Hour
+	before := time.Now()
+	fake := newFakeDockerDaemon(t, func(f *fakeDockerDaemon) {
+		f.logsBody = before.Add(-time.Hour).Format(time.RFC3339Nano) + " older line\n" +
+			before.Add(-time.Hour).Add(time.Second).Format(time.RFC3339Nano) + " newer line\n"
+	})
 	c, err := NewClient(fake.server.URL)
 	require.NoError(t, err)
 
-	lookback := 2 * time.Hour
-	before := time.Now()
 	entries, err := c.ReadLogsLookback(t.Context(), "abc123def4567890", lookback)
 	after := time.Now()
 	require.NoError(t, err)
