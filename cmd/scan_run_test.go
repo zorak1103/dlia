@@ -14,10 +14,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/zorak1103/dlia/internal/chunking"
 	"github.com/zorak1103/dlia/internal/config"
 	"github.com/zorak1103/dlia/internal/docker"
+	"github.com/zorak1103/dlia/internal/knowledge"
 	"github.com/zorak1103/dlia/internal/llm"
 	"github.com/zorak1103/dlia/internal/llmlogger"
+	"github.com/zorak1103/dlia/internal/severity"
 	"github.com/zorak1103/dlia/internal/state"
 )
 
@@ -399,20 +402,30 @@ func TestRunScan_UpdateGlobalSummaryFails(t *testing.T) {
 }
 
 func TestRunScan_ExecutiveSummaryFails(t *testing.T) {
-	setupScanRunTest(t)
+	env := setupScanRunTest(t)
 	read := captureStdout(t)
 	withScanDockerMock(t, &MockDockerClient{
 		containers: []docker.Container{scanContainer()},
 		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
 	}, nil)
-	// First Analyze call (container analysis) succeeds, the second (executive
-	// summary) fails — the run must warn and continue, not abort.
-	withScanLLMMock(t, &fakeScanLLM{analysis: "Container analysis", failAfter: 1})
+	// Enable notifications with warning threshold so the exec-summary path is reached.
+	cfg.Notification.Enabled = true
+	cfg.Notification.ShoutrrURL = "invalid://test"
+	// First Analyze call (container analysis) succeeds with warning severity,
+	// the second (executive summary) fails — a warning is printed and the
+	// notification is still sent (empty summary), so the error ultimately comes
+	// from the send failure.
+	withScanLLMMock(t, &fakeScanLLM{analysis: "Container analysis\nSEVERITY: warning", failAfter: 1})
 
 	err := runScan(newScanRunCmd(), []string{})
 
 	require.NoError(t, err, "executive summary failure must not abort the scan")
-	assert.Contains(t, read(), "Failed to handle executive summary")
+	out := read()
+	// exec summary error is printed as a warning (not returned)
+	assert.Contains(t, out, "Executive summary failed")
+	// the notification send fails → that error propagates to the caller as "Failed to handle executive summary"
+	assert.Contains(t, out, "Failed to handle executive summary")
+	assert.NotEmpty(t, env.tmpDir)
 }
 
 func TestRunScan_NotificationSendFails(t *testing.T) {
@@ -422,7 +435,8 @@ func TestRunScan_NotificationSendFails(t *testing.T) {
 		containers: []docker.Container{scanContainer()},
 		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
 	}, nil)
-	withScanLLMMock(t, &fakeScanLLM{analysis: "Notify analysis"})
+	// Give warning severity so the notification path is reached.
+	withScanLLMMock(t, &fakeScanLLM{analysis: "Notify analysis\nSEVERITY: warning"})
 	cfg.Notification.Enabled = true
 	cfg.Notification.ShoutrrURL = "invalid://test"
 
@@ -444,7 +458,8 @@ func TestRunScan_NotifierInitFails(t *testing.T) {
 		containers: []docker.Container{scanContainer()},
 		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
 	}, nil)
-	withScanLLMMock(t, &fakeScanLLM{analysis: "No-URL analysis"})
+	// Give warning severity so the notifier-init path is reached.
+	withScanLLMMock(t, &fakeScanLLM{analysis: "No-URL analysis\nSEVERITY: warning"})
 	cfg.Notification.Enabled = true
 	cfg.Notification.ShoutrrURL = "" // enabled but no URL → notifier init fails
 
@@ -517,4 +532,251 @@ func TestRunScan_NotificationDisabledEndsWithoutSending(t *testing.T) {
 	assert.Contains(t, out, "Scan complete")
 	assert.NotContains(t, out, "Notification sent successfully")
 	assert.NotEmpty(t, env.stateFile)
+}
+
+// fakeNotifier is a scanNotifier that records Send calls without hitting Shoutrrr.
+type fakeNotifier struct {
+	enabled     bool
+	sendErr     error
+	sends       int
+	lastSummary string
+	lastCount   int
+	lastOverall severity.Level
+	lastFailed  []string
+}
+
+func (f *fakeNotifier) IsEnabled() bool { return f.enabled }
+func (f *fakeNotifier) SendScanSummary(summary string, containerCount int, overall severity.Level, failed []string) error {
+	f.sends++
+	f.lastSummary = summary
+	f.lastCount = containerCount
+	f.lastOverall = overall
+	f.lastFailed = failed
+	return f.sendErr
+}
+
+// withFakeNotifier replaces newNotifier with one that returns fn for the test duration.
+func withFakeNotifier(t *testing.T, fn *fakeNotifier) {
+	t.Helper()
+	orig := newNotifier
+	newNotifier = func(_ *config.Config) (scanNotifier, error) { return fn, nil }
+	t.Cleanup(func() { newNotifier = orig })
+}
+
+// scanEnvWithNotifications creates a scan env with notifications enabled and a fake notifier.
+func scanEnvWithNotifications(t *testing.T, minSev string) *fakeNotifier {
+	t.Helper()
+	setupScanRunTest(t)
+	cfg.Notification.Enabled = true
+	cfg.Notification.MinSeverity = minSev
+	fn := &fakeNotifier{enabled: true}
+	withFakeNotifier(t, fn)
+	return fn
+}
+
+func TestOverallSeverity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		outcomes map[string]knowledge.ServiceOutcome
+		want     severity.Level
+	}{
+		{
+			name:     "empty map returns OK",
+			outcomes: map[string]knowledge.ServiceOutcome{},
+			want:     severity.OK,
+		},
+		{
+			name: "all ok returns OK",
+			outcomes: map[string]knowledge.ServiceOutcome{
+				"a": {Result: &chunking.AnalyzeResult{Severity: severity.OK}},
+			},
+			want: severity.OK,
+		},
+		{
+			name: "warning returns Warning",
+			outcomes: map[string]knowledge.ServiceOutcome{
+				"a": {Result: &chunking.AnalyzeResult{Severity: severity.Warning}},
+			},
+			want: severity.Warning,
+		},
+		{
+			name: "failed-only returns Unknown",
+			outcomes: map[string]knowledge.ServiceOutcome{
+				"a": {Result: nil},
+			},
+			want: severity.Unknown,
+		},
+		{
+			name: "mixed ok and failed returns Unknown",
+			outcomes: map[string]knowledge.ServiceOutcome{
+				"a": {Result: &chunking.AnalyzeResult{Severity: severity.OK}},
+				"b": {Result: nil},
+			},
+			want: severity.Unknown,
+		},
+		{
+			name: "critical beats unknown",
+			outcomes: map[string]knowledge.ServiceOutcome{
+				"a": {Result: &chunking.AnalyzeResult{Severity: severity.Critical}},
+				"b": {Result: nil},
+			},
+			want: severity.Critical,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := overallSeverity(tt.outcomes)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestRunScan_BelowThreshold_NoExecSummaryNoSend(t *testing.T) {
+	setVerbose(t)
+	fn := scanEnvWithNotifications(t, "warning") // default threshold
+	withScanDockerMock(t, &MockDockerClient{
+		containers: []docker.Container{scanContainer()},
+		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
+	}, nil)
+	fake := &fakeScanLLM{analysis: "fine\nSEVERITY: ok"}
+	withScanLLMMock(t, fake)
+	read := captureStdout(t)
+
+	err := runScan(newScanRunCmd(), []string{})
+
+	require.NoError(t, err)
+	out := read()
+	assert.Equal(t, 1, fake.calls, "only 1 LLM call (container), no exec summary")
+	assert.Equal(t, 0, fn.sends, "no notification sent")
+	assert.Contains(t, out, "Notification skipped (severity ok below threshold warning)")
+}
+
+func TestRunScan_AtThreshold_Sends(t *testing.T) {
+	fn := scanEnvWithNotifications(t, "warning")
+	withScanDockerMock(t, &MockDockerClient{
+		containers: []docker.Container{scanContainer()},
+		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
+	}, nil)
+	fake := &fakeScanLLM{analysis: "degraded\nSEVERITY: warning"}
+	withScanLLMMock(t, fake)
+
+	err := runScan(newScanRunCmd(), []string{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, fake.calls, "2 LLM calls: container + exec summary")
+	assert.Equal(t, 1, fn.sends)
+	assert.Equal(t, severity.Warning, fn.lastOverall)
+	assert.Empty(t, fn.lastFailed)
+	assert.NotEmpty(t, fn.lastSummary)
+}
+
+func TestRunScan_MinSeverityOK_SendsAllOK(t *testing.T) {
+	fn := scanEnvWithNotifications(t, "ok")
+	withScanDockerMock(t, &MockDockerClient{
+		containers: []docker.Container{scanContainer()},
+		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
+	}, nil)
+	withScanLLMMock(t, &fakeScanLLM{analysis: "fine\nSEVERITY: ok"})
+
+	err := runScan(newScanRunCmd(), []string{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, fn.sends)
+}
+
+func TestRunScan_AllFailed_SendsWithoutLLMSummary(t *testing.T) {
+	env := setupScanRunTest(t)
+	cfg.Notification.Enabled = true
+	fn := &fakeNotifier{enabled: true}
+	withFakeNotifier(t, fn)
+	withScanDockerMock(t, &MockDockerClient{
+		containers: []docker.Container{scanContainer()},
+		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
+	}, nil)
+	fake := &fakeScanLLM{failAll: true}
+	withScanLLMMock(t, fake)
+
+	err := runScan(newScanRunCmd(), []string{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, fn.sends)
+	assert.Equal(t, "", fn.lastSummary)
+	assert.Equal(t, severity.Unknown, fn.lastOverall)
+	assert.Equal(t, []string{scanContainer().Name}, fn.lastFailed)
+	assert.Equal(t, 1, fn.lastCount)
+
+	// global_summary.md must still be written containing the failed row
+	data, err2 := os.ReadFile(filepath.Join(env.kbDir, "global_summary.md"))
+	require.NoError(t, err2)
+	assert.Contains(t, string(data), severity.FailedLabel)
+}
+
+func TestRunScan_NotifierDisabled_AllFailed(t *testing.T) {
+	// Review Focus #5: notifications disabled, every container fails
+	// → no LLM call, no error, global_summary.md still written with failed rows.
+	env := setupScanRunTest(t)
+	// notifications stay disabled (setupScanRunTest default)
+	withScanDockerMock(t, &MockDockerClient{
+		containers: []docker.Container{scanContainer()},
+		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
+	}, nil)
+	fake := &fakeScanLLM{failAll: true}
+	withScanLLMMock(t, fake)
+
+	err := runScan(newScanRunCmd(), []string{})
+
+	require.NoError(t, err)
+	// No exec-summary LLM call (0 container analyses succeeded)
+	assert.Equal(t, 1, fake.calls, "only 1 failing LLM call, no exec summary call")
+
+	data, err2 := os.ReadFile(filepath.Join(env.kbDir, "global_summary.md"))
+	require.NoError(t, err2)
+	assert.Contains(t, string(data), severity.FailedLabel)
+}
+
+func TestRunScan_ExecSummaryFails_SendsWithoutSummary(t *testing.T) {
+	setVerbose(t)
+	fn := scanEnvWithNotifications(t, "warning")
+	withScanDockerMock(t, &MockDockerClient{
+		containers: []docker.Container{scanContainer()},
+		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
+	}, nil)
+	// failAfter:1 → container analysis succeeds, exec-summary call fails
+	fake := &fakeScanLLM{analysis: "deg\nSEVERITY: warning", failAfter: 1}
+	withScanLLMMock(t, fake)
+	read := captureStdout(t)
+
+	err := runScan(newScanRunCmd(), []string{})
+
+	require.NoError(t, err)
+	out := read()
+	assert.Equal(t, 1, fn.sends, "notification still sent despite exec summary failure")
+	assert.Equal(t, "", fn.lastSummary, "summary empty when exec summary failed")
+	assert.Contains(t, out, "Executive summary failed")
+}
+
+func TestRunScan_MixedFailure_CountsInSend(t *testing.T) {
+	container2 := docker.Container{ID: "ffffffffffffffff0000", Name: "db", State: "running"}
+	fn := scanEnvWithNotifications(t, "warning")
+	withScanDockerMock(t, &MockDockerClient{
+		containers: []docker.Container{scanContainer(), container2},
+		logs: map[string][]docker.LogEntry{
+			scanContainer().ID: scanLogs,
+			container2.ID:      scanLogs,
+		},
+	}, nil)
+	// First container succeeds with warning, second fails
+	fake := &fakeScanLLM{analysis: "deg\nSEVERITY: warning", failAfter: 1}
+	withScanLLMMock(t, fake)
+
+	err := runScan(newScanRunCmd(), []string{})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, fn.sends)
+	assert.Equal(t, 2, fn.lastCount)
+	assert.Equal(t, []string{container2.Name}, fn.lastFailed)
 }

@@ -344,7 +344,7 @@ func TestHandleReportingAndKnowledge_VerboseCaptured(t *testing.T) {
 	scanCfg.verbose = true
 
 	read := captureStdout(t)
-	handleReportingAndKnowledge("test-container", result, logs, cfg, scanCfg)
+	_ = handleReportingAndKnowledge("test-container", result, logs, cfg, scanCfg)
 	out := read()
 
 	assert.Contains(t, out, "Knowledge base updated")
