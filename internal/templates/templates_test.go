@@ -214,6 +214,16 @@ func TestEnvFile_IsByteSlice(_ *testing.T) {
 	_ = EnvFile[0] // Should not panic if it's a valid byte slice with content
 }
 
+func TestConfigYAML_RegexpFiltersHintsAtAlternatingNoise(t *testing.T) {
+	content := string(ConfigYAML)
+
+	for _, want := range []string{"consecutive", "alternating", "GET /metrics"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("Expected ConfigYAML to contain %q", want)
+		}
+	}
+}
+
 func TestConfigYAML_ContainsAnswerLimitsAndExtraBody(t *testing.T) {
 	content := string(ConfigYAML)
 
