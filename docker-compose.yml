@@ -1,10 +1,35 @@
 services:
-  dlia:
-    image: zorak1103/dlia:latest
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:latest
+    environment:
+      - CONTAINERS=1   # list/inspect containers
+      - ALLOW_LOGS=1   # read container logs (denied by default)
+      - POST=0         # read-only API
+      - EVENTS=0       # not needed by DLIA
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs:
+      - /run
+    restart: unless-stopped
+    networks:
+      - socket-proxy
+
+  dlia:
+    image: zorak1103/dlia:latest
+    depends_on:
+      - socket-proxy
+    volumes:
       - ./dlia-data:/data
     environment:
+      - DLIA_DOCKER_SOCKET_PATH=tcp://socket-proxy:2375
       - DLIA_LLM_API_KEY=${DLIA_LLM_API_KEY}
       - DLIA_LLM_MODEL=${DLIA_LLM_MODEL:-gpt-4o-mini}
+    networks:
+      - socket-proxy
+      - default
     command: scan
+
+networks:
+  socket-proxy:
+    internal: true

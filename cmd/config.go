@@ -119,6 +119,7 @@ Sensitive values like API keys are masked for security.`,
 		// Docker Configuration
 		fmt.Println("🐳 Docker Configuration:")
 		fmt.Printf("   Socket Path:    %s\n", cfg.Docker.SocketPath)
+		fmt.Printf("   Suppress Socket Warning: %v\n", cfg.Docker.SuppressSocketWarning)
 		fmt.Println()
 
 		// Notification Configuration

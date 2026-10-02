@@ -64,7 +64,7 @@ Visualizes data movement through the system:
 ### 7. Deployment Diagram
 Shows deployment topology:
 - Single binary with embedded dependencies
-- Docker socket integration
+- Docker API access: read-only socket proxy in Docker Compose (recommended) or direct socket for the host binary
 - LLM provider options (OpenAI, OpenRouter, Ollama)
 - Notification services (SMTP, Discord, Slack, etc.)
 - Scheduling options (cron, systemd, Windows Task Scheduler)

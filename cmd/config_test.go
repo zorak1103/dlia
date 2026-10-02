@@ -645,7 +645,8 @@ func TestConfigCmd_OutputsKnowledgeRetentionDays(t *testing.T) {
 		},
 		Scan: config.ScanConfig{MaxWindow: 36 * time.Hour},
 		Docker: config.DockerConfig{
-			SocketPath: "unix:///var/run/docker.sock",
+			SocketPath:            "unix:///var/run/docker.sock",
+			SuppressSocketWarning: true,
 		},
 		Notification: config.NotificationConfig{
 			Enabled:     false,
@@ -695,6 +696,7 @@ func TestConfigCmd_OutputsKnowledgeRetentionDays(t *testing.T) {
 	assert.Regexp(t, `Context Window:\s+8000`, output)
 	assert.Regexp(t, `Max Chunks:\s+7`, output)
 	assert.Regexp(t, `Max Window:\s+36h0m0s`, output)
+	assert.Contains(t, output, "Suppress Socket Warning: true")
 	assert.NotContains(t, output, "Max Tokens")
 }
 

@@ -117,7 +117,7 @@ func (w *dockerClientWrapper) ListContainers(ctx context.Context, opts FilterOpt
 
 	containers, err := w.cli.ContainerList(ctx, listOptions)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list containers from socket %s: %w", w.socketPath, err)
+		return nil, fmt.Errorf("failed to list containers from socket %s: %w", w.socketPath, proxyHint(err))
 	}
 
 	var result []Container
@@ -168,7 +168,7 @@ func (w *dockerClientWrapper) ReadLogsSince(ctx context.Context, containerID str
 
 	reader, err := w.cli.ContainerLogs(ctx, containerID, logOpts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read logs for container %s: %w", containerID, err)
+		return nil, fmt.Errorf("failed to read logs for container %s: %w", containerID, proxyHint(err))
 	}
 	// Close reader after parsing; error not actionable in defer context as stream is already consumed
 	defer func() { _ = reader.Close() }()

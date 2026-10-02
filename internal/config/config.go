@@ -124,6 +124,8 @@ type LLMConfig struct {
 // DockerConfig contains Docker-specific settings
 type DockerConfig struct {
 	SocketPath string `mapstructure:"socket_path"`
+	// SuppressSocketWarning silences the startup warning for unix:// and npipe:// sockets.
+	SuppressSocketWarning bool `mapstructure:"suppress_socket_warning"`
 }
 
 // NotificationConfig contains notification settings
@@ -294,6 +296,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("scan.max_window", "24h")
 
 	// Docker defaults
+	v.SetDefault("docker.suppress_socket_warning", false)
 	if os.Getenv("DOCKER_HOST") != "" {
 		v.SetDefault("docker.socket_path", os.Getenv("DOCKER_HOST"))
 	} else {

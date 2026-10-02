@@ -99,6 +99,27 @@ func TestCleanupListCmd_ClientFactoryFails(t *testing.T) {
 	assert.Empty(t, out.String())
 }
 
+func TestCleanupListCmd_WarnsOnceForLocalSocket(t *testing.T) {
+	setupCleanupRunTest(t)
+	withDockerMock(t, &testMockDockerClient{containers: []docker.Container{}}, nil)
+	buf := captureSocketWarning(t)
+
+	require.NoError(t, cleanupListCmd.RunE(cleanupListCmd, []string{}))
+
+	assert.Equal(t, 1, strings.Count(buf.String(), socketWarningPrefix))
+}
+
+func TestCleanupListCmd_NoWarningForTCP(t *testing.T) {
+	setupCleanupRunTest(t)
+	cfg.Docker.SocketPath = "tcp://socket-proxy:2375"
+	withDockerMock(t, &testMockDockerClient{containers: []docker.Container{}}, nil)
+	buf := captureSocketWarning(t)
+
+	require.NoError(t, cleanupListCmd.RunE(cleanupListCmd, []string{}))
+
+	assert.Empty(t, buf.String())
+}
+
 func TestCleanupListCmd_PingFails(t *testing.T) {
 	out := setupCleanupRunTest(t)
 	withDockerMock(t, &testMockDockerClient{pingErr: errors.New("daemon down")}, nil)

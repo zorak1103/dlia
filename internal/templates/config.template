@@ -62,10 +62,18 @@ docker:
   #   - Or use DOCKER_HOST environment variable
   # 
   # Manual override examples:
+  #   - Socket proxy: tcp://socket-proxy:2375 (recommended with Docker Compose, see README)
   #   - Unix: unix:///var/run/docker.sock
   #   - Windows: npipe:////./pipe/docker_engine
   #   - Remote: tcp://192.168.1.100:2375
+  #
+  # unix:// and npipe:// print a startup warning: direct socket access is
+  # root-equivalent access to the host.
   socket_path: ""
+
+  # Silence the startup warning for direct socket access (unix:// or npipe://).
+  # Only set this if you accept root-equivalent access, e.g. on a single-user dev machine.
+  suppress_socket_warning: false
 
 # Notification Configuration
 notification:

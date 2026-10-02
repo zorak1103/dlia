@@ -64,7 +64,7 @@ contain data for each obsolete container.`,
 
 		// Initialize Docker client
 		ctx := context.Background()
-		dockerClient, err := newDockerClient(cfg.Docker.SocketPath)
+		dockerClient, err := connectDocker(cfg)
 		if err != nil {
 			return fmt.Errorf("failed to create Docker client: %w", err)
 		}
@@ -163,7 +163,7 @@ Use --dry-run to preview without deleting, or --force to skip confirmation.`,
 
 		// Initialize Docker client
 		ctx := context.Background()
-		dockerClient, err := newDockerClient(cfg.Docker.SocketPath)
+		dockerClient, err := connectDocker(cfg)
 		if err != nil {
 			return fmt.Errorf("failed to create Docker client: %w", err)
 		}

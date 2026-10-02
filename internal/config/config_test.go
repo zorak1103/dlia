@@ -331,6 +331,36 @@ func TestValidate_ValidConfig(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestLoad_SuppressSocketWarning(t *testing.T) {
+	tests := []struct {
+		name     string
+		yamlLine string
+		env      string
+		want     bool
+	}{
+		{name: "default false", want: false},
+		{name: "yaml true", yamlLine: "  suppress_socket_warning: true\n", want: true},
+		{name: "env true", env: "true", want: true},
+		{name: "env 1", env: "1", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DLIA_LLM_API_KEY", "test-key")
+			t.Setenv("DLIA_DOCKER_SUPPRESS_SOCKET_WARNING", tt.env)
+			if tt.env == "" {
+				require.NoError(t, os.Unsetenv("DLIA_DOCKER_SUPPRESS_SOCKET_WARNING"))
+			}
+			configPath := filepath.Join(t.TempDir(), "config.yaml")
+			content := "docker:\n  socket_path: unix:///var/run/docker.sock\n" + tt.yamlLine
+			require.NoError(t, os.WriteFile(configPath, []byte(content), 0o600))
+
+			cfg, err := Load(configPath)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, cfg.Docker.SuppressSocketWarning)
+		})
+	}
+}
+
 func TestLoad_DockerHostEnvVar(t *testing.T) {
 	// Set DOCKER_HOST env var
 	os.Setenv("DOCKER_HOST", "tcp://test-host:2375") // nolint:errcheck,gosec
