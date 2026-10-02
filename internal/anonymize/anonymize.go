@@ -14,6 +14,9 @@
 //   - the Authorization rule masks the rest of the header line, not just the
 //     credential
 //   - multi-line values (only private key blocks are masked across lines)
+//   - "password= ab=cd": a value after "= " that itself looks like key=value
+//     is left as-is (it is read as the next pair)
+//   - URL passwords containing a raw "@": the part after the "@" leaks
 package anonymize
 
 import "strconv"

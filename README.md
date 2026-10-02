@@ -242,11 +242,11 @@ DLIA_SCAN_MAX_WINDOW=24h
 
 ### Reliability Settings
 
-- **`llm.context_window`** (default `128000`, minimum `5625` for the default answer limit) - The context window size of your model in tokens, not the answer length. It replaces `llm.max_tokens`, which is deprecated: it still works as an alias but prints a warning. The minimum follows `llm.max_answer_tokens`: it is `ceil((max_answer_tokens + 500) * 100 / 80)`, e.g. `5625` for `4000` and `8125` for `6000`. Smaller windows are rejected at startup. For models unknown to the tokenizer, DLIA budgets 80% of the window because token counts are only estimates.
+- **`llm.context_window`** (default `128000`, minimum `5625` for the default answer limit) - The context window size of your model in tokens, not the answer length. It replaces `llm.max_tokens`, which is deprecated: it still works as an alias but prints a warning. The minimum follows the larger of `llm.max_answer_tokens` and `llm.max_chunk_summary_tokens`: it is `ceil((larger + 500) * 100 / 80)`, e.g. `5625` for `4000` and `8125` for `6000`. Smaller windows are rejected at startup. For models unknown to the tokenizer, DLIA budgets 80% of the window because token counts are only estimates.
 - **`llm.max_chunks_per_container`** (default `10`, at least `1`) - If the logs need more chunks than this, only the newest N chunks are analyzed. The rest is noted in the report.
 - **`llm.max_answer_tokens`** (default `4000`, at least `256`, env `DLIA_LLM_MAX_ANSWER_TOKENS`) - The maximum length of the model's answer for an analysis. It also sets the response reserve in the context budget, so a larger value raises the minimum `llm.context_window` (see above) and can cause logs to be split into more chunks.
 - **`llm.max_chunk_summary_tokens`** (default `2000`, at least `256`, env `DLIA_LLM_MAX_CHUNK_SUMMARY_TOKENS`) - The maximum length of the model's answer for each chunk summary.
-- **`llm.extra_body`** (optional, config file only, no environment variable) - A map of provider-specific options merged at the top level into every chat request. See [Privacy & provider choice](#privacy--provider-choice) for an example and the reserved keys. `dlia config` shows only the keys, never the values.
+- **`llm.extra_body`** (optional, set in the config file; no environment variable of its own) - A map of provider-specific options merged at the top level into every chat request. See [Privacy & provider choice](#privacy--provider-choice) for an example and the reserved keys. `dlia config` shows only the keys, never the values.
 - **`privacy.anonymize_ips`** / **`privacy.anonymize_secrets`** (both default `true`, env `DLIA_PRIVACY_ANONYMIZE_IPS` / `DLIA_PRIVACY_ANONYMIZE_SECRETS`) - Mask IP addresses as `<IP-n>` and secrets as `<SECRET>` before logs are sent to the LLM. Best effort, see [Privacy & provider choice](#privacy--provider-choice).
 - **`scan.max_window`** (default `"24h"`) - The longest history read per container per scan. It must be a quoted Go duration string such as `"24h"` or `"90m"` and at least `1m` (a bare number like `3600` is read as nanoseconds and rejected). An older gap is skipped and reported. `--lookback` is not capped by this setting. The first scan of a container reads the last hour.
 
@@ -390,17 +390,17 @@ This applies automatically to custom prompt templates and custom system prompts.
 
 Before container logs are sent to the LLM, DLIA masks IP addresses and common secret formats. This is **best effort, not a guarantee**. It is on by default and controlled by `privacy.anonymize_ips` and `privacy.anonymize_secrets` (both default `true`).
 
-**What is masked as `<SECRET>`** (the key or prefix stays readable, only the value is replaced):
+**What is masked as `<SECRET>`.** Where there is a key or prefix, it stays readable and only the value is replaced. Whole-token secrets (private key blocks, JWTs, AWS key IDs) become `<SECRET>` entirely:
 
 - Private key blocks (`-----BEGIN ... PRIVATE KEY-----` to `-----END ... PRIVATE KEY-----`)
 - JSON Web Tokens
 - AWS access key IDs (`AKIA...`)
-- `Authorization:` header values (`Authorization: Basic dXNlcjpwYXNz` becomes `Authorization: <SECRET>`)
+- `Authorization:` headers: the rest of the header line is masked (`Authorization: Basic dXNlcjpwYXNz` becomes `Authorization: <SECRET>`)
 - Bearer tokens (`Bearer abc.def-123` becomes `Bearer <SECRET>`)
 - Credentials in URLs (`https://user:pass@host` becomes `https://<SECRET>@host`)
-- Values of `password`, `passwd`, `pwd`, `secret`, `token`, `api_key` and `apikey`, as `key=value`, `key: value` or JSON (`"password":"hunter2"`). Keys with a prefix such as `access_token`, `client_secret` or `db_password` match too. `tokens_used` and `secretary` do not.
+- Values of `password`, `passwd`, `pwd`, `secret`, `token`, `apikey`, `api_key`/`api-key`, `access_key`, `private_key`, `client_secret` and `secret_key`/`secret_access_key` (dash or underscore, any case), as `key=value`, `key: value` or JSON (`"password":"hunter2"`). Keys with a prefix such as `access_token`, `db_password`, `AWS_SECRET_ACCESS_KEY` or `X-API-Key` match too. `tokens_used`, `secretary`, `keyboard` and `cache_key_count` do not (a bare `key` is not a key name).
 
-**What is masked as `<IP-n>`:** IPv4 and IPv6 addresses (including ports, brackets and zone IDs), with the number `n` counting from 1 in order of first appearance. The same address always gets the same number within one container and scan.
+**What is masked as `<IP-n>`:** IPv4 and IPv6 addresses with the number `n` counting from 1 in order of first appearance. Addresses with a port or in brackets are recognized; the port and brackets stay in the text, and a zone ID is masked together with the address. Numbering is per written form within one container scan, so `::ffff:10.0.0.1` and `10.0.0.1`, or a compressed and an expanded IPv6 form of the same address, may get different numbers.
 
 **What is not masked:**
 
@@ -408,7 +408,14 @@ Before container logs are sent to the LLM, DLIA masks IP addresses and common se
 - Other personal data such as e-mail addresses or usernames
 - Secret formats that are not in the list above
 
-**Known false positives:** anything that is a valid IP address is masked, for example version strings like `1.2.3.4` or hex-only words like `dead::beef`.
+**Known misses:**
+
+- `password= ab=cd`: a value after `= ` that itself looks like `key=value` is left as-is (it is read as the next pair)
+- URL passwords that contain a raw `@`: the part after the `@` leaks
+- IPv6 addresses glued to a preceding word or colon (`ip:2001:db8::1`)
+- Secrets spread across several lines (only private key blocks are masked across lines)
+
+**Known false positives:** any other valid IP address is masked, for example version strings like `1.2.3.4` or hex-only words like `dead::beef`.
 
 **Placeholders in output.** `<IP-n>` and `<SECRET>` also appear in reports and in the knowledge base. The numbering is per container per scan. To find the real value, look it up in the container logs at the time of the report.
 
@@ -435,7 +442,7 @@ llm:
 - `reasoning.effort: none` is rejected by some models, for example GLM 5.3 Flash. Use `low` instead.
 - These keys are reserved and rejected at startup, because DLIA sets them itself (matching is case-insensitive): `model`, `messages`, `temperature`, `max_tokens`, `max_completion_tokens`, `stream`, `n`. Use `llm.max_answer_tokens` and `llm.max_chunk_summary_tokens` for the answer length.
 - Option names must be lowercase: the config loader lowercases map keys, so provider options with uppercase letters cannot be expressed.
-- `extra_body` is read from the config file only; there is no environment variable. `dlia config` shows only its keys, never its values.
+- Set `extra_body` in the config file. It has no environment variable of its own, but like all keys an existing leaf can be overridden via `DLIA_LLM_EXTRA_BODY_<PATH>`; the value then arrives as a string, so do not rely on that. `dlia config` shows only its keys, never its values.
 
 #### Local models
 

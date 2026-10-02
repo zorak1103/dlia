@@ -7,7 +7,8 @@ import (
 
 const secretPlaceholder = "<SECRET>"
 
-const kvKey = `(?i)\b([a-z0-9_-]*(?:password|passwd|pwd|secret|token|api_key|apikey))\b`
+const kvKey = `(?i)\b([a-z0-9_-]*(?:password|passwd|pwd|secret|token|` +
+	`api[-_]?key|access[-_]?key|private[-_]?key|client[-_]?secret|secret[-_]?(?:access[-_]?)?key))\b`
 
 // kvSep allows a quoted (or backslash-escaped quoted) key before the separator.
 const kvSep = `(\\?["']?[ \t]*[:=][ \t]*)`
@@ -16,7 +17,9 @@ const kvSep = `(\\?["']?[ \t]*[:=][ \t]*)`
 // "password= user=bob" (empty value) from a real value.
 var kvPlain = regexp.MustCompile(kvKey + `(\\?["']?[ \t]*[:=])([ \t]*)([^\s,;&"'\\][^\s,;&"']*)`)
 
-// nextKV matches a would-be value that is really the next key=value pair. It is\n// only consulted after an "=" separator and whitespace; "password: a=b" stays a\n// secret (fail-safe).
+// nextKV matches a would-be value that is really the next key=value pair. It is
+// only consulted after an "=" separator and whitespace; "password: a=b" stays a
+// secret (fail-safe).
 var nextKV = regexp.MustCompile(`^[A-Za-z0-9_.-]+=[^=]`)
 
 // secretRules are applied in order, before kvPlain. Replacements keep the key
