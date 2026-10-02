@@ -612,20 +612,15 @@ func displayScanSummary(stats scanStats, scanCfg *scanConfig, lookbackDuration t
 func generateExecutiveSummary(ctx context.Context, _ *chunking.Pipeline, containerAnalyses map[string]string, cfg *config.Config) (string, error) {
 	promptLoader := prompts.NewPromptLoader(cfg)
 
-	prompt, err := promptLoader.ExecutiveSummaryPrompt(containerAnalyses)
+	m, err := promptLoader.ExecutiveSummaryMessages(containerAnalyses)
 	if err != nil {
 		return "", fmt.Errorf("failed to load executive summary prompt: %w", err)
 	}
 
 	llmClient := newLLMClient(cfg.LLM.BaseURL, cfg.LLM.APIKey, cfg.LLM.Model)
 
-	systemPrompt, err := promptLoader.SystemPrompt("")
-	if err != nil {
-		return "", fmt.Errorf("failed to load system prompt: %w", err)
-	}
-
 	// Empty container name parameter: this is a cross-container global summary
-	summary, _, err := llmClient.Analyze(ctx, "", systemPrompt, prompt)
+	summary, _, err := llmClient.Analyze(ctx, "", m.System, m.User)
 	if err != nil {
 		return "", fmt.Errorf("LLM call failed: %w", err)
 	}

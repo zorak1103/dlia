@@ -114,10 +114,15 @@ type fakeScanLLM struct {
 	failAfter int
 	failAll   bool
 	calls     int
+
+	systemPrompts []string
+	userPrompts   []string
 }
 
-func (f *fakeScanLLM) Analyze(_ context.Context, _, _, _ string) (string, *llm.TokenUsage, error) {
+func (f *fakeScanLLM) Analyze(_ context.Context, _, system, user string) (string, *llm.TokenUsage, error) {
 	f.calls++
+	f.systemPrompts = append(f.systemPrompts, system)
+	f.userPrompts = append(f.userPrompts, user)
 	if f.failAll {
 		return "", nil, errors.New("llm exploded")
 	}

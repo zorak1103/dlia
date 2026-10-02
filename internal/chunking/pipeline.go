@@ -19,6 +19,8 @@ const (
 
 	// SystemPromptReserveTokens accounts for the system prompt overhead in token calculations.
 	// This estimate is based on typical prompt templates and may need adjustment for custom prompts.
+	// It also has to cover the untrusted-data rule appended to every system prompt (~170 tokens),
+	// which custom prompts do not include themselves.
 	SystemPromptReserveTokens = 500
 
 	// ChunkSizeDivisor controls how conservatively we size chunks relative to available tokens.
@@ -192,26 +194,25 @@ func (p *Pipeline) AnalyzeLogs(ctx context.Context, containerName string, logs [
 	// Step 3: Load container-specific ignore patterns (error returns empty string, which is valid)
 	ignoreInstructions, _ := config.GetIgnoreInstructions(containerName, p.ignoreDir) //nolint:errcheck // Error returns empty string, which is valid
 
-	systemPrompt, err := p.promptLoader.SystemPrompt(ignoreInstructions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load system prompt: %w", err)
-	}
-	userPromptBase, err := p.promptLoader.AnalysisPrompt(containerName, "", len(processedLogs))
+	// Prompt with empty logs: only used to size the token budget. The marker has a fixed
+	// length, so this estimate matches the real call within a few tokens (the random hex
+	// tokenizes variably).
+	base, err := p.promptLoader.AnalysisMessages(containerName, ignoreInstructions, "", len(processedLogs))
 	if err != nil {
 		return nil, fmt.Errorf("failed to load analysis prompt: %w", err)
 	}
 
 	// Step 4: Choose analysis strategy and parse severity from the final answer.
-	return p.analyzeByBudget(ctx, containerName, processedLogs, systemPrompt, userPromptBase, logsText, result)
+	return p.analyzeByBudget(ctx, containerName, processedLogs, base, ignoreInstructions, logsText, result)
 }
 
 // analyzeByBudget calculates the token budget, picks direct or chunked analysis,
 // then strips the SEVERITY line from the final answer and stores it in result.
-func (p *Pipeline) analyzeByBudget(ctx context.Context, containerName string, processedLogs []docker.LogEntry, systemPrompt, userPromptBase, logsText string, result *AnalyzeResult) (*AnalyzeResult, error) {
+func (p *Pipeline) analyzeByBudget(ctx context.Context, containerName string, processedLogs []docker.LogEntry, base prompts.Messages, ignoreInstructions, logsText string, result *AnalyzeResult) (*AnalyzeResult, error) {
 	// Calculate token budget: system prompt + base user prompt (with severity instruction)
 	// + actual log content. Available tokens for logs = model limit - response reserve - system overhead.
-	systemTokens := p.tokenizer.EstimateSystemPromptTokens(systemPrompt)
-	baseUserTokens := p.tokenizer.CountTokens(userPromptBase + "\n\n" + severity.Instruction)
+	systemTokens := p.tokenizer.EstimateSystemPromptTokens(base.System)
+	baseUserTokens := p.tokenizer.CountTokens(base.User)
 	logsTokens := p.tokenizer.CountTokens(logsText)
 
 	totalTokens := systemTokens + baseUserTokens + logsTokens
@@ -220,14 +221,14 @@ func (p *Pipeline) analyzeByBudget(ctx context.Context, containerName string, pr
 	var err error
 	if totalTokens+ResponseReserveTokens <= p.maxTokens {
 		var usage *llm.TokenUsage
-		result.Analysis, usage, err = p.analyzeDirectly(ctx, containerName, processedLogs, systemPrompt, logsText)
+		result.Analysis, usage, err = p.analyzeDirectly(ctx, containerName, ignoreInstructions, processedLogs, logsText)
 		if err != nil {
 			return nil, err
 		}
 		result.TokensUsed = usage.TotalTokens
 		result.ChunksUsed = 1
 	} else {
-		result.Analysis, result.TokensUsed, result.ChunksUsed, result.CoverageNotes, err = p.analyzeWithChunking(ctx, containerName, processedLogs, systemPrompt, availableTokens)
+		result.Analysis, result.TokensUsed, result.ChunksUsed, result.CoverageNotes, err = p.analyzeWithChunking(ctx, containerName, ignoreInstructions, processedLogs, availableTokens)
 		if err != nil {
 			return nil, err
 		}
@@ -240,13 +241,12 @@ func (p *Pipeline) analyzeByBudget(ctx context.Context, containerName string, pr
 	return result, nil
 }
 
-func (p *Pipeline) analyzeDirectly(ctx context.Context, containerName string, logs []docker.LogEntry, systemPrompt, logsText string) (string, *llm.TokenUsage, error) {
-	userPrompt, err := p.promptLoader.AnalysisPrompt(containerName, logsText, len(logs))
+func (p *Pipeline) analyzeDirectly(ctx context.Context, containerName, ignoreInstructions string, logs []docker.LogEntry, logsText string) (string, *llm.TokenUsage, error) {
+	m, err := p.promptLoader.AnalysisMessages(containerName, ignoreInstructions, logsText, len(logs))
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to load analysis prompt: %w", err)
 	}
-	userPrompt += "\n\n" + severity.Instruction
-	return p.client.Analyze(ctx, containerName, systemPrompt, userPrompt)
+	return p.client.Analyze(ctx, containerName, m.System, m.User)
 }
 
 // limitChunks keeps only the newest maxChunks chunks (renumbered) and returns a
@@ -280,7 +280,7 @@ func limitChunks(chunks []Chunk, maxChunks int) (kept []Chunk, note string) {
 	return kept, note
 }
 
-func (p *Pipeline) analyzeWithChunking(ctx context.Context, containerName string, logs []docker.LogEntry, systemPrompt string, availableTokens int) (analysis string, totalTokens, chunksUsed int, notes []string, err error) {
+func (p *Pipeline) analyzeWithChunking(ctx context.Context, containerName, ignoreInstructions string, logs []docker.LogEntry, availableTokens int) (analysis string, totalTokens, chunksUsed int, notes []string, err error) {
 	chunks := ChunkLogs(logs, availableTokens/ChunkSizeDivisor, p.tokenizer)
 
 	if len(chunks) == 0 {
@@ -298,12 +298,12 @@ func (p *Pipeline) analyzeWithChunking(ctx context.Context, containerName string
 
 	for i, chunk := range chunks {
 		chunkText := FormatChunk(chunk)
-		chunkPrompt, promptErr := p.promptLoader.ChunkSummaryPrompt(containerName, i+1, len(chunks), chunkText)
+		m, promptErr := p.promptLoader.ChunkMessages(containerName, ignoreInstructions, i+1, len(chunks), chunkText)
 		if promptErr != nil {
 			return "", totalTokens, chunksUsed, notes, fmt.Errorf("failed to load chunk summary prompt: %w", promptErr)
 		}
 
-		summary, summarizeErr := p.client.SummarizeChunk(ctx, containerName, systemPrompt, chunkPrompt)
+		summary, summarizeErr := p.client.SummarizeChunk(ctx, containerName, m.System, m.User)
 		if summarizeErr != nil {
 			return "", totalTokens, chunksUsed, notes, fmt.Errorf("failed to summarize chunk %d/%d (length: %d logs, %d tokens) for container %s: %w",
 				i+1, len(chunks), len(chunk.Logs), chunk.TokenCount, containerName, summarizeErr)
@@ -314,12 +314,11 @@ func (p *Pipeline) analyzeWithChunking(ctx context.Context, containerName string
 		totalTokens += p.tokenizer.CountTokens(chunkText) + p.tokenizer.CountTokens(summary)
 	}
 
-	synthesisPrompt, synthesisErr := p.promptLoader.SynthesisPrompt(containerName, summaries)
+	synth, synthesisErr := p.promptLoader.SynthesisMessages(containerName, ignoreInstructions, summaries)
 	if synthesisErr != nil {
 		return "", totalTokens, chunksUsed, notes, fmt.Errorf("failed to load synthesis prompt: %w", synthesisErr)
 	}
-	synthesisPrompt += "\n\n" + severity.Instruction
-	finalAnalysis, usage, analyzeErr := p.client.Analyze(ctx, containerName, systemPrompt, synthesisPrompt)
+	finalAnalysis, usage, analyzeErr := p.client.Analyze(ctx, containerName, synth.System, synth.User)
 	if analyzeErr != nil {
 		return "", totalTokens, chunksUsed, notes, fmt.Errorf("failed to synthesize %d chunk summaries for container %s: %w",
 			len(summaries), containerName, analyzeErr)
