@@ -37,7 +37,7 @@ llm:
   # Set via environment variable: DLIA_LLM_MAX_CHUNK_SUMMARY_TOKENS
   max_chunk_summary_tokens: 2000
 
-  # Provider-specific options, merged into every chat request (config file only)
+  # Provider-specific request options
   # Not allowed: model, messages, temperature, max_tokens, max_completion_tokens, stream, n
   # extra_body:            # merged into every chat request (config file only)
   #   provider:            # OpenRouter: no data collection, zero data retention
