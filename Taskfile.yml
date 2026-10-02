@@ -63,6 +63,11 @@ tasks:
     cmds:
       - gotestsum --watch ./...
 
+  eval:
+    desc: Run the LLM eval suite against a real model (needs DLIA_LLM_API_KEY + DLIA_LLM_MODEL; costs money, not in CI)
+    cmds:
+      - go test -tags eval -count=1 -v -timeout 30m ./internal/eval/
+
   # ============================================================================
   # CODE QUALITY
   # ============================================================================
