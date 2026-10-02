@@ -148,3 +148,90 @@ func TestAnalyzeLogs_NoLogs_OK(t *testing.T) {
 	assert.Equal(t, severity.OK, res.Severity)
 	assert.Empty(t, client.analyzeUserPrompts)
 }
+
+// TestAnalyzeLogs_SeverityOnlyAnswer_Direct_Error verifies that an LLM answer
+// containing only a SEVERITY line is rejected with ErrSeverityOnlyAnswer on the
+// direct path: the report would otherwise render an empty analysis box.
+func TestAnalyzeLogs_SeverityOnlyAnswer_Direct_Error(t *testing.T) {
+	client := newRecordingClient()
+	client.analyzeResponse = "SEVERITY: ok"
+
+	p := newTestPipeline(t, NewMockTokenizer(0.1), client, 1_000_000)
+
+	_, err := p.AnalyzeLogs(context.Background(), "c", oneLogs())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrSeverityOnlyAnswer)
+	assert.Contains(t, err.Error(),
+		"analysis for container c empty: model returned only a severity line")
+}
+
+// TestAnalyzeLogs_SeverityOnlyAnswer_Chunked_Error verifies that the chunked
+// path rejects a severity-only synthesis answer with the same error.
+func TestAnalyzeLogs_SeverityOnlyAnswer_Chunked_Error(t *testing.T) {
+	tok := NewMockTokenizer(1)
+	client := newRecordingClient()
+	client.analyzeResponse = "SEVERITY: ok"
+
+	p, _ := newForcedChunkedPipeline(t, tok, client)
+
+	_, err := p.AnalyzeLogs(context.Background(), "c", threeLogs())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrSeverityOnlyAnswer)
+	assert.Contains(t, err.Error(),
+		"analysis for container c empty: model returned only a severity line")
+}
+
+// TestAnalyzeLogs_SeverityOnlyAnswer_UnrecognizedValue_Error verifies that a
+// severity-only answer with an unrecognized value fails too: the line is
+// removed, so nothing usable remains.
+func TestAnalyzeLogs_SeverityOnlyAnswer_UnrecognizedValue_Error(t *testing.T) {
+	client := newRecordingClient()
+	client.analyzeResponse = "SEVERITY: banana"
+
+	p := newTestPipeline(t, NewMockTokenizer(0.1), client, 1_000_000)
+
+	_, err := p.AnalyzeLogs(context.Background(), "c", oneLogs())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrSeverityOnlyAnswer)
+}
+
+// TestAnalyzeLogs_SeverityOnlyAnswer_TrailingWhitespace_Error verifies that a
+// whitespace-only remainder after removing the severity line counts as an
+// empty analysis.
+func TestAnalyzeLogs_SeverityOnlyAnswer_TrailingWhitespace_Error(t *testing.T) {
+	client := newRecordingClient()
+	client.analyzeResponse = "SEVERITY: ok\n  \n"
+
+	p := newTestPipeline(t, NewMockTokenizer(0.1), client, 1_000_000)
+
+	_, err := p.AnalyzeLogs(context.Background(), "c", oneLogs())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrSeverityOnlyAnswer)
+}
+
+// TestAnalyzeLogs_SeverityOnlyAnswer_Fenced_Error documents the interplay
+// between the empty-fence removal and the severity-only check: a fenced
+// severity-only answer cleans to "" and must fail as well.
+func TestAnalyzeLogs_SeverityOnlyAnswer_Fenced_Error(t *testing.T) {
+	client := newRecordingClient()
+	client.analyzeResponse = "```\nSEVERITY: ok\n```"
+
+	p := newTestPipeline(t, NewMockTokenizer(0.1), client, 1_000_000)
+
+	_, err := p.AnalyzeLogs(context.Background(), "c", oneLogs())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrSeverityOnlyAnswer)
+}
+
+// TestAnalyzeLogs_SeverityWithText_NoError guards against over-eagerness: text
+// after the severity line means the analysis is not empty and must succeed.
+func TestAnalyzeLogs_SeverityWithText_NoError(t *testing.T) {
+	client := newRecordingClient()
+	client.analyzeResponse = "SEVERITY: ok\n\nLet me know"
+
+	p := newTestPipeline(t, NewMockTokenizer(0.1), client, 1_000_000)
+
+	res, err := p.AnalyzeLogs(context.Background(), "c", oneLogs())
+	require.NoError(t, err)
+	assert.Equal(t, severity.OK, res.Severity)
+}
