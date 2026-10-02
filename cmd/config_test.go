@@ -177,8 +177,20 @@ func TestConfigCmd_Structure(t *testing.T) {
 func TestConfigCmd_HelpOutput(t *testing.T) {
 	var buf bytes.Buffer
 
-	// Create a fresh instance of the root command with config as subcommand
+	// Set output on rootCmd AND configCmd directly: other tests leak their
+	// buffers onto the shared global commands, and which ones have run before
+	// this test depends on -shuffle. Setting both makes this test immune to
+	// that order.
 	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&buf)
+	configCmd.SetOut(&buf)
+	configCmd.SetErr(&buf)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		configCmd.SetOut(nil)
+		configCmd.SetErr(nil)
+	})
 	rootCmd.SetArgs([]string{"config", "--help"})
 
 	err := rootCmd.Execute()
@@ -215,6 +227,11 @@ func TestConfigCmd_RequiresConfig(t *testing.T) {
 	cmd := configCmd
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
+	t.Cleanup(func() {
+		// Do not leak this test's buffer onto configCmd for later tests.
+		cmd.SetOut(nil)
+		cmd.SetErr(nil)
+	})
 
 	err := cmd.RunE(cmd, []string{})
 
@@ -239,6 +256,11 @@ func TestConfigCmd_RequiresConfigExitCode2(t *testing.T) {
 	cmd := configCmd
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
+	t.Cleanup(func() {
+		// Do not leak this test's buffer onto configCmd for later tests.
+		cmd.SetOut(nil)
+		cmd.SetErr(nil)
+	})
 
 	err := cmd.RunE(cmd, []string{})
 
