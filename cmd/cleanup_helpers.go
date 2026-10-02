@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -142,6 +143,21 @@ func scanLLMLogs(cfg *config.Config) ([]string, error) {
 
 // newDockerClient is a seam for tests to stub Docker connections.
 var newDockerClient = docker.NewClient
+
+// socketWarningOut is a seam for tests to capture the socket warning.
+var socketWarningOut io.Writer = os.Stderr
+
+// connectDocker creates the Docker client, warning first when the configured
+// socket grants root-equivalent access (unix:// or npipe://).
+func connectDocker(cfg *config.Config) (docker.Client, error) {
+	if !cfg.Docker.SuppressSocketWarning && docker.IsLocalSocket(cfg.Docker.SocketPath) {
+		_, _ = fmt.Fprintf(socketWarningOut, //nolint:errcheck // best-effort warning on stderr
+			"Warning: DLIA is using the Docker socket directly (%s), which grants root-equivalent access to the host; "+
+				"see README \"Docker socket access\" for the socket-proxy setup (silence with docker.suppress_socket_warning: true)\n",
+			cfg.Docker.SocketPath)
+	}
+	return newDockerClient(cfg.Docker.SocketPath)
+}
 
 // ObsoleteContainer represents a container that exists in storage but not in Docker
 type ObsoleteContainer struct {

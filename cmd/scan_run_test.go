@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -234,6 +235,16 @@ func TestRunScan_DockerClientFactoryFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create Docker client")
 	assert.Contains(t, err.Error(), "no socket")
+}
+
+func TestRunScan_WarnsOnceForLocalSocket(t *testing.T) {
+	setupScanRunTest(t)
+	withScanDockerMock(t, &MockDockerClient{}, nil)
+	buf := captureSocketWarning(t)
+
+	_ = runScan(newScanRunCmd(), []string{})
+
+	assert.Equal(t, 1, strings.Count(buf.String(), socketWarningPrefix))
 }
 
 func TestRunScan_PingFails(t *testing.T) {

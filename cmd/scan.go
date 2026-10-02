@@ -184,7 +184,7 @@ func initializeDockerAndState(ctx context.Context, cfg *config.Config, scanCfg *
 	if scanCfg.verbose {
 		fmt.Println("🐳 Connecting to Docker...")
 	}
-	dockerClient, err := newDockerClient(cfg.Docker.SocketPath)
+	dockerClient, err := connectDocker(cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
