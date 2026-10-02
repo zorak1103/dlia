@@ -408,3 +408,51 @@ func TestClientWire_ReadLogsLookback_SinceArithmetic(t *testing.T) {
 func TestNewClient_ConstructorError(t *testing.T) {
 	t.Skip("client.NewClientWithOpts failure path unreachable via public API; documented, not chased (spec: unreachable-by-design)")
 }
+
+const proxyForbiddenBody = "<html><body><h1>403 Forbidden</h1>\nRequest forbidden by administrative rules.\n</body></html>\n"
+
+// TestClientWire_ReadLogs_ProxyDenied_AddsHint verifies a socket-proxy 403
+// (HTML body, not Docker JSON) on the logs endpoint carries the proxy hint.
+func TestClientWire_ReadLogs_ProxyDenied_AddsHint(t *testing.T) {
+	fake := newFakeDockerDaemon(t, func(f *fakeDockerDaemon) {
+		f.logsStatus = http.StatusForbidden
+		f.logsBody = proxyForbiddenBody
+	})
+	c, err := NewClient(fake.server.URL)
+	require.NoError(t, err)
+
+	_, err = c.ReadLogsSince(t.Context(), "abc123def4567890", time.Now())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read logs for container")
+	assert.Contains(t, err.Error(), "ALLOW_LOGS=1")
+}
+
+// TestClientWire_ListContainers_ProxyDenied_AddsHint verifies a socket-proxy
+// 403 on /containers/json carries the proxy hint.
+func TestClientWire_ListContainers_ProxyDenied_AddsHint(t *testing.T) {
+	fake := newFakeDockerDaemon(t, func(f *fakeDockerDaemon) {
+		f.listStatus = http.StatusForbidden
+		f.listBody = proxyForbiddenBody
+	})
+	c, err := NewClient(fake.server.URL)
+	require.NoError(t, err)
+
+	_, err = c.ListContainers(t.Context(), FilterOptions{IncludeAll: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to list containers from socket")
+	assert.Contains(t, err.Error(), proxyDeniedHint)
+}
+
+// TestClientWire_ReadLogs_ServerError_NoHint verifies non-403 failures do not
+// get the proxy hint.
+func TestClientWire_ReadLogs_ServerError_NoHint(t *testing.T) {
+	fake := newFakeDockerDaemon(t, func(f *fakeDockerDaemon) {
+		f.logsStatus = http.StatusInternalServerError
+	})
+	c, err := NewClient(fake.server.URL)
+	require.NoError(t, err)
+
+	_, err = c.ReadLogsSince(t.Context(), "abc123def4567890", time.Now())
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "ALLOW_LOGS")
+}
