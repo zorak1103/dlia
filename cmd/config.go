@@ -21,16 +21,16 @@ func validateConfigOrExit(cfg *config.Config, _ string) error {
 	if cfg == nil {
 		if loadErr := GetConfigLoadError(); loadErr != nil {
 			if errors.Is(loadErr, config.ErrNoConfigFile) {
-				return fmt.Errorf("configuration not loaded: %w\n\nRun 'dlia init' to set up DLIA and create the necessary configuration", loadErr)
+				return &exitError{code: 2, err: fmt.Errorf("configuration not loaded: %w\n\nRun 'dlia init' to set up DLIA and create the necessary configuration", loadErr)}
 			}
-			return fmt.Errorf("configuration not loaded: %w", loadErr)
+			return &exitError{code: 2, err: fmt.Errorf("configuration not loaded: %w", loadErr)}
 		}
-		return fmt.Errorf("configuration not loaded\n\nDLIA has not been initialized in this directory.\nRun 'dlia init' to set up DLIA and create the necessary configuration")
+		return &exitError{code: 2, err: fmt.Errorf("configuration not loaded\n\nDLIA has not been initialized in this directory.\nRun 'dlia init' to set up DLIA and create the necessary configuration")}
 	}
 
 	// Check if config file exists (using DI approach - config file path stored in Config struct)
 	if cfg.ConfigFilePath == "" {
-		return fmt.Errorf("no configuration file found\n\nDLIA requires a configuration file to run.\nRun 'dlia init' to create config.yaml in the current directory")
+		return &exitError{code: 2, err: fmt.Errorf("no configuration file found\n\nDLIA requires a configuration file to run.\nRun 'dlia init' to create config.yaml in the current directory")}
 	}
 
 	// Validate required directories exist
@@ -68,7 +68,7 @@ func validateConfigOrExit(cfg *config.Config, _ string) error {
 			errMsg += fmt.Sprintf("  - %s\n", dir)
 		}
 		errMsg += "\nRun 'dlia init' to create the required directory structure"
-		return fmt.Errorf("%s", errMsg)
+		return &exitError{code: 2, err: fmt.Errorf("%s", errMsg)}
 	}
 
 	return nil

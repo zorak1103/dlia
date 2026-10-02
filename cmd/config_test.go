@@ -616,6 +616,109 @@ func TestValidateConfigOrExit_StateDirInCurrentDir(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestValidateConfigOrExit_ExitCode2 tests assert that every failing branch of
+// validateConfigOrExit wraps its error in an *exitError with code 2, so that
+// Execute() maps configuration errors to process exit code 2. The error message
+// text itself is pinned by the pre-existing TestValidateConfigOrExit_* tests.
+
+func TestValidateConfigOrExit_NilConfigExitCode2(t *testing.T) {
+	original := errConfigLoad
+	t.Cleanup(func() { errConfigLoad = original })
+	errConfigLoad = nil
+
+	err := validateConfigOrExit(nil, "test")
+
+	require.Error(t, err)
+	var ee *exitError
+	if !errors.As(err, &ee) || ee.code != 2 {
+		t.Errorf("expected exitError code 2, got %v", err)
+	}
+}
+
+func TestValidateConfigOrExit_NilConfigWithLoadErrorExitCode2(t *testing.T) {
+	original := errConfigLoad
+	t.Cleanup(func() { errConfigLoad = original })
+	errConfigLoad = errors.New("llm.context_window must be at least 5625, got 4000")
+
+	err := validateConfigOrExit(nil, "test")
+
+	require.Error(t, err)
+	var ee *exitError
+	if !errors.As(err, &ee) || ee.code != 2 {
+		t.Errorf("expected exitError code 2, got %v", err)
+	}
+}
+
+func TestValidateConfigOrExit_NilConfigNoConfigFileExitCode2(t *testing.T) {
+	original := errConfigLoad
+	t.Cleanup(func() { errConfigLoad = original })
+	errConfigLoad = config.ErrNoConfigFile
+
+	err := validateConfigOrExit(nil, "test")
+
+	require.Error(t, err)
+	var ee *exitError
+	if !errors.As(err, &ee) || ee.code != 2 {
+		t.Errorf("expected exitError code 2, got %v", err)
+	}
+	assert.ErrorIs(t, err, config.ErrNoConfigFile)
+}
+
+func TestValidateConfigOrExit_NoConfigFileExitCode2(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	reportsDir := filepath.Join(tmpDir, "reports")
+	kbDir := filepath.Join(tmpDir, "knowledge_base")
+	require.NoError(t, os.MkdirAll(reportsDir, 0750))
+	require.NoError(t, os.MkdirAll(kbDir, 0750))
+
+	cfg := &config.Config{
+		ConfigFilePath: "", // Empty = no config file
+		Output: config.OutputConfig{
+			ReportsDir:       reportsDir,
+			KnowledgeBaseDir: kbDir,
+			StateFile:        "./state.json",
+			LLMLogDir:        filepath.Join(tmpDir, "logs"),
+			LLMLogEnabled:    false,
+		},
+	}
+
+	err := validateConfigOrExit(cfg, "test")
+
+	require.Error(t, err)
+	var ee *exitError
+	if !errors.As(err, &ee) || ee.code != 2 {
+		t.Errorf("expected exitError code 2, got %v", err)
+	}
+}
+
+func TestValidateConfigOrExit_MissingDirectoriesExitCode2(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configFile := filepath.Join(tmpDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("test: value"), 0600))
+
+	cfg := &config.Config{
+		ConfigFilePath: configFile,
+		Output: config.OutputConfig{
+			ReportsDir:       filepath.Join(tmpDir, "nonexistent_reports"),
+			KnowledgeBaseDir: filepath.Join(tmpDir, "nonexistent_kb"),
+			StateFile:        filepath.Join(tmpDir, "state", "state.json"),
+			LLMLogDir:        filepath.Join(tmpDir, "nonexistent_logs"),
+			LLMLogEnabled:    true,
+		},
+	}
+
+	err := validateConfigOrExit(cfg, "test")
+
+	require.Error(t, err)
+	var ee *exitError
+	if !errors.As(err, &ee) || ee.code != 2 {
+		t.Errorf("expected exitError code 2, got %v", err)
+	}
+	assert.Contains(t, err.Error(), "required directories are missing")
+}
+
 func TestConfigCmd_OutputsKnowledgeRetentionDays(t *testing.T) {
 	// Arrange: Create a config with a specific knowledge retention value
 	tmpDir := t.TempDir()
