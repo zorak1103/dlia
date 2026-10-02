@@ -82,7 +82,7 @@ func TestPromptLoader_SystemPrompt(t *testing.T) {
 			}
 
 			loader := NewPromptLoader(cfg)
-			prompt, err := loader.SystemPrompt(tt.ignoreInstructions)
+			prompt, err := loader.systemPrompt(tt.ignoreInstructions)
 			if err != nil {
 				t.Fatalf("SystemPrompt() error = %v", err)
 			}
@@ -137,7 +137,7 @@ func TestPromptLoader_AnalysisPrompt(t *testing.T) {
 			cfg := &config.Config{}
 			loader := NewPromptLoader(cfg)
 
-			prompt, err := loader.AnalysisPrompt(tt.containerName, tt.logs, tt.logCount)
+			prompt, err := loader.analysisPrompt(tt.containerName, tt.logs, tt.logCount)
 			if err != nil {
 				t.Fatalf("AnalysisPrompt() error = %v", err)
 			}
@@ -189,7 +189,7 @@ func TestPromptLoader_ChunkSummaryPrompt(t *testing.T) {
 			cfg := &config.Config{}
 			loader := NewPromptLoader(cfg)
 
-			prompt, err := loader.ChunkSummaryPrompt(tt.containerName, tt.chunkNum, tt.totalChunks, tt.logs)
+			prompt, err := loader.chunkSummaryPrompt(tt.containerName, tt.chunkNum, tt.totalChunks, tt.logs)
 			if err != nil {
 				t.Fatalf("ChunkSummaryPrompt() error = %v", err)
 			}
@@ -245,7 +245,7 @@ func TestPromptLoader_SynthesisPrompt(t *testing.T) {
 			cfg := &config.Config{}
 			loader := NewPromptLoader(cfg)
 
-			prompt, err := loader.SynthesisPrompt(tt.containerName, tt.summaries)
+			prompt, err := loader.synthesisPrompt(tt.containerName, combineSummaries(tt.summaries))
 			if err != nil {
 				t.Fatalf("SynthesisPrompt() error = %v", err)
 			}
@@ -300,7 +300,7 @@ func TestPromptLoader_ExecutiveSummaryPrompt(t *testing.T) {
 			cfg := &config.Config{}
 			loader := NewPromptLoader(cfg)
 
-			prompt, err := loader.ExecutiveSummaryPrompt(tt.containerResults)
+			prompt, err := loader.executiveSummaryPrompt(len(tt.containerResults), combineAnalyses(tt.containerResults))
 			if err != nil {
 				t.Fatalf("ExecutiveSummaryPrompt() error = %v", err)
 			}
@@ -319,7 +319,7 @@ func TestPromptLoader_GetPromptSource(t *testing.T) {
 	loader := NewPromptLoader(cfg)
 
 	// Load a prompt to populate sources
-	_, err := loader.SystemPrompt("")
+	_, err := loader.systemPrompt("")
 	if err != nil {
 		t.Fatalf("Failed to load system prompt: %v", err)
 	}
@@ -350,8 +350,8 @@ func TestPromptLoader_GetAllPromptSources(t *testing.T) {
 	}
 
 	// Load some prompts
-	_, _ = loader.SystemPrompt("")
-	_, _ = loader.AnalysisPrompt("test", "logs", 10)
+	_, _ = loader.systemPrompt("")
+	_, _ = loader.analysisPrompt("test", "logs", 10)
 
 	sources = loader.GetAllPromptSources()
 	if len(sources) == 0 {
@@ -374,7 +374,7 @@ func TestPromptLoader_ExternalPromptFallback(t *testing.T) {
 	loader := NewPromptLoader(cfg)
 
 	// Should fall back to embedded default
-	prompt, err := loader.SystemPrompt("")
+	prompt, err := loader.systemPrompt("")
 	if err != nil {
 		t.Fatalf("SystemPrompt() should fallback, got error: %v", err)
 	}
@@ -426,7 +426,7 @@ func TestPromptLoader_InvalidTemplate(t *testing.T) {
 
 	loader := NewPromptLoader(cfg)
 
-	_, err = loader.AnalysisPrompt("test", "logs", 5)
+	_, err = loader.analysisPrompt("test", "logs", 5)
 	if err == nil {
 		t.Error("Expected error for invalid template")
 	}
@@ -451,7 +451,7 @@ func TestPromptLoader_TemplateExecutionError(t *testing.T) {
 
 	loader := NewPromptLoader(cfg)
 
-	_, err = loader.AnalysisPrompt("test", "logs", 5)
+	_, err = loader.analysisPrompt("test", "logs", 5)
 	if err == nil {
 		t.Error("Expected error for template execution failure")
 	}
@@ -490,7 +490,7 @@ func TestPromptLoader_AllPromptsWithExternalFiles(t *testing.T) {
 
 	// Test all prompts use external files
 	t.Run("system prompt", func(t *testing.T) {
-		prompt, err := loader.SystemPrompt("")
+		prompt, err := loader.systemPrompt("")
 		if err != nil {
 			t.Fatalf("Error: %v", err)
 		}
@@ -503,7 +503,7 @@ func TestPromptLoader_AllPromptsWithExternalFiles(t *testing.T) {
 	})
 
 	t.Run("analysis prompt", func(t *testing.T) {
-		prompt, err := loader.AnalysisPrompt("test", "log data", 5)
+		prompt, err := loader.analysisPrompt("test", "log data", 5)
 		if err != nil {
 			t.Fatalf("Error: %v", err)
 		}
@@ -513,7 +513,7 @@ func TestPromptLoader_AllPromptsWithExternalFiles(t *testing.T) {
 	})
 
 	t.Run("chunk summary prompt", func(t *testing.T) {
-		prompt, err := loader.ChunkSummaryPrompt("test", 2, 5, "chunk data")
+		prompt, err := loader.chunkSummaryPrompt("test", 2, 5, "chunk data")
 		if err != nil {
 			t.Fatalf("Error: %v", err)
 		}
@@ -523,7 +523,7 @@ func TestPromptLoader_AllPromptsWithExternalFiles(t *testing.T) {
 	})
 
 	t.Run("synthesis prompt", func(t *testing.T) {
-		prompt, err := loader.SynthesisPrompt("test", []string{"sum1", "sum2"})
+		prompt, err := loader.synthesisPrompt("test", combineSummaries([]string{"sum1", "sum2"}))
 		if err != nil {
 			t.Fatalf("Error: %v", err)
 		}
@@ -534,7 +534,7 @@ func TestPromptLoader_AllPromptsWithExternalFiles(t *testing.T) {
 
 	t.Run("executive summary prompt", func(t *testing.T) {
 		results := map[string]string{"c1": "a1"}
-		prompt, err := loader.ExecutiveSummaryPrompt(results)
+		prompt, err := loader.executiveSummaryPrompt(len(results), combineAnalyses(results))
 		if err != nil {
 			t.Fatalf("Error: %v", err)
 		}
@@ -561,7 +561,7 @@ func TestPromptLoader_ChunkSummaryTemplateErrors(t *testing.T) {
 		}
 		loader := NewPromptLoader(cfg)
 
-		_, err = loader.ChunkSummaryPrompt("test", 1, 2, "logs")
+		_, err = loader.chunkSummaryPrompt("test", 1, 2, "logs")
 		if err == nil {
 			t.Error("Expected error for invalid chunk summary template")
 		}
@@ -587,7 +587,7 @@ func TestPromptLoader_ChunkSummaryTemplateErrors(t *testing.T) {
 		}
 		loader := NewPromptLoader(cfg)
 
-		_, err = loader.ChunkSummaryPrompt("test", 1, 2, "logs")
+		_, err = loader.chunkSummaryPrompt("test", 1, 2, "logs")
 		if err == nil {
 			t.Error("Expected error for chunk summary template execution failure")
 		}
@@ -614,7 +614,7 @@ func TestPromptLoader_SynthesisTemplateErrors(t *testing.T) {
 		}
 		loader := NewPromptLoader(cfg)
 
-		_, err = loader.SynthesisPrompt("test", []string{"summary one"})
+		_, err = loader.synthesisPrompt("test", combineSummaries([]string{"summary one"}))
 		if err == nil {
 			t.Error("Expected error for invalid synthesis template")
 		}
@@ -639,7 +639,7 @@ func TestPromptLoader_SynthesisTemplateErrors(t *testing.T) {
 		}
 		loader := NewPromptLoader(cfg)
 
-		_, err = loader.SynthesisPrompt("test", []string{"summary one"})
+		_, err = loader.synthesisPrompt("test", combineSummaries([]string{"summary one"}))
 		if err == nil {
 			t.Error("Expected error for synthesis template execution failure")
 		}
@@ -666,7 +666,7 @@ func TestPromptLoader_ExecutiveSummaryTemplateErrors(t *testing.T) {
 		}
 		loader := NewPromptLoader(cfg)
 
-		_, err = loader.ExecutiveSummaryPrompt(map[string]string{"c1": "a1"})
+		_, err = loader.executiveSummaryPrompt(len(map[string]string{"c1": "a1"}), combineAnalyses(map[string]string{"c1": "a1"}))
 		if err == nil {
 			t.Error("Expected error for invalid executive summary template")
 		}
@@ -691,7 +691,7 @@ func TestPromptLoader_ExecutiveSummaryTemplateErrors(t *testing.T) {
 		}
 		loader := NewPromptLoader(cfg)
 
-		_, err = loader.ExecutiveSummaryPrompt(map[string]string{"c1": "a1"})
+		_, err = loader.executiveSummaryPrompt(len(map[string]string{"c1": "a1"}), combineAnalyses(map[string]string{"c1": "a1"}))
 		if err == nil {
 			t.Error("Expected error for executive summary template execution failure")
 		}
@@ -715,7 +715,7 @@ func TestPromptLoader_SynthesisPrompt_ChunkNumbering(t *testing.T) {
 	cfg := &config.Config{Prompts: config.PromptsConfig{SynthesisPrompt: templatePath}}
 	loader := NewPromptLoader(cfg)
 
-	prompt, err := loader.SynthesisPrompt("test", []string{"first summary", "second summary"})
+	prompt, err := loader.synthesisPrompt("test", combineSummaries([]string{"first summary", "second summary"}))
 	if err != nil {
 		t.Fatalf("Error: %v", err)
 	}
@@ -734,7 +734,7 @@ func BenchmarkPromptLoader_SystemPrompt(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = loader.SystemPrompt("")
+		_, _ = loader.systemPrompt("")
 	}
 }
 
@@ -744,6 +744,6 @@ func BenchmarkPromptLoader_AnalysisPrompt(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = loader.AnalysisPrompt("test", "logs", 100)
+		_, _ = loader.analysisPrompt("test", "logs", 100)
 	}
 }

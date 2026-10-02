@@ -111,8 +111,8 @@ var (
 	execSpec      = callSpec{"analyses", "per-container analyses", "analyses of the monitored containers' logs", false}
 )
 
-// SystemPrompt returns the base system prompt, optionally extended with ignore instructions.
-func (pl *PromptLoader) SystemPrompt(ignoreInstructions string) (string, error) {
+// systemPrompt returns the base system prompt, optionally extended with ignore instructions.
+func (pl *PromptLoader) systemPrompt(ignoreInstructions string) (string, error) {
 	basePrompt, err := pl.loadPrompt(
 		"system_prompt",
 		"defaults/system_prompt.md",
@@ -130,14 +130,16 @@ func (pl *PromptLoader) SystemPrompt(ignoreInstructions string) (string, error) 
 }
 
 // renderTemplate loads the named prompt template (external override or embedded
-// default) and executes it with data. label names the template in error messages.
-func (pl *PromptLoader) renderTemplate(name, externalPath, label string, data map[string]interface{}) (string, error) {
+// default) and executes it with data.
+func (pl *PromptLoader) renderTemplate(name, externalPath string, data map[string]interface{}) (string, error) {
 	templateContent, err := pl.loadPrompt(name, "defaults/"+name+".md", externalPath)
 	if err != nil {
 		return "", err
 	}
 
-	tmpl, err := template.New(label).Option("missingkey=error").Parse(templateContent)
+	tmplName := strings.TrimSuffix(name, "_prompt")
+	label := strings.ReplaceAll(tmplName, "_", " ")
+	tmpl, err := template.New(tmplName).Option("missingkey=error").Parse(templateContent)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse %s template: %w", label, err)
 	}
@@ -185,7 +187,7 @@ func (pl *PromptLoader) buildMessages(spec callSpec, ignoreInstructions, data st
 		user += "\n\n" + severity.Instruction
 	}
 
-	system, err := pl.SystemPrompt(ignoreInstructions)
+	system, err := pl.systemPrompt(ignoreInstructions)
 	if err != nil {
 		return Messages{}, err
 	}
@@ -197,14 +199,14 @@ func (pl *PromptLoader) buildMessages(spec callSpec, ignoreInstructions, data st
 // AnalysisMessages builds the system/user prompts for analyzing logs in one call.
 func (pl *PromptLoader) AnalysisMessages(containerName, ignoreInstructions, logs string, logCount int) (Messages, error) {
 	return pl.buildMessages(analysisSpec, ignoreInstructions, logs, func(wrapped string) (string, error) {
-		return pl.AnalysisPrompt(containerName, wrapped, logCount)
+		return pl.analysisPrompt(containerName, wrapped, logCount)
 	})
 }
 
 // ChunkMessages builds the system/user prompts for summarizing a single log chunk.
 func (pl *PromptLoader) ChunkMessages(containerName, ignoreInstructions string, chunkNum, totalChunks int, logs string) (Messages, error) {
 	return pl.buildMessages(chunkSpec, ignoreInstructions, logs, func(wrapped string) (string, error) {
-		return pl.ChunkSummaryPrompt(containerName, chunkNum, totalChunks, wrapped)
+		return pl.chunkSummaryPrompt(containerName, chunkNum, totalChunks, wrapped)
 	})
 }
 
@@ -222,18 +224,18 @@ func (pl *PromptLoader) ExecutiveSummaryMessages(containerAnalyses map[string]st
 	})
 }
 
-// AnalysisPrompt renders the log analysis template with container context.
-func (pl *PromptLoader) AnalysisPrompt(containerName, logs string, logCount int) (string, error) {
-	return pl.renderTemplate("analysis_prompt", pl.cfg.Prompts.AnalysisPrompt, "analysis", map[string]interface{}{
+// analysisPrompt renders the log analysis template with container context.
+func (pl *PromptLoader) analysisPrompt(containerName, logs string, logCount int) (string, error) {
+	return pl.renderTemplate("analysis_prompt", pl.cfg.Prompts.AnalysisPrompt, map[string]interface{}{
 		"ContainerName": containerName,
 		"Logs":          logs,
 		"LogCount":      logCount,
 	})
 }
 
-// ChunkSummaryPrompt renders the template for summarizing a single log chunk.
-func (pl *PromptLoader) ChunkSummaryPrompt(containerName string, chunkNum, totalChunks int, logs string) (string, error) {
-	return pl.renderTemplate("chunk_summary_prompt", pl.cfg.Prompts.ChunkSummaryPrompt, "chunk summary", map[string]interface{}{
+// chunkSummaryPrompt renders the template for summarizing a single log chunk.
+func (pl *PromptLoader) chunkSummaryPrompt(containerName string, chunkNum, totalChunks int, logs string) (string, error) {
+	return pl.renderTemplate("chunk_summary_prompt", pl.cfg.Prompts.ChunkSummaryPrompt, map[string]interface{}{
 		"ContainerName": containerName,
 		"ChunkNum":      chunkNum,
 		"TotalChunks":   totalChunks,
@@ -241,25 +243,17 @@ func (pl *PromptLoader) ChunkSummaryPrompt(containerName string, chunkNum, total
 	})
 }
 
-// SynthesisPrompt renders the template for combining multiple chunk summaries.
-func (pl *PromptLoader) SynthesisPrompt(containerName string, summaries []string) (string, error) {
-	return pl.synthesisPrompt(containerName, combineSummaries(summaries))
-}
-
+// synthesisPrompt renders the template for combining multiple chunk summaries.
 func (pl *PromptLoader) synthesisPrompt(containerName, combinedSummaries string) (string, error) {
-	return pl.renderTemplate("synthesis_prompt", pl.cfg.Prompts.SynthesisPrompt, "synthesis", map[string]interface{}{
+	return pl.renderTemplate("synthesis_prompt", pl.cfg.Prompts.SynthesisPrompt, map[string]interface{}{
 		"ContainerName": containerName,
 		"Summaries":     combinedSummaries,
 	})
 }
 
-// ExecutiveSummaryPrompt renders the template for cross-container summary generation.
-func (pl *PromptLoader) ExecutiveSummaryPrompt(containerResults map[string]string) (string, error) {
-	return pl.executiveSummaryPrompt(len(containerResults), combineAnalyses(containerResults))
-}
-
+// executiveSummaryPrompt renders the template for cross-container summary generation.
 func (pl *PromptLoader) executiveSummaryPrompt(containerCount int, combinedAnalyses string) (string, error) {
-	return pl.renderTemplate("executive_summary_prompt", pl.cfg.Prompts.ExecutiveSummaryPrompt, "executive summary", map[string]interface{}{
+	return pl.renderTemplate("executive_summary_prompt", pl.cfg.Prompts.ExecutiveSummaryPrompt, map[string]interface{}{
 		"ContainerCount":    containerCount,
 		"ContainerAnalyses": combinedAnalyses,
 	})

@@ -87,7 +87,7 @@ func TestDisplayPromptConfiguration_LoaderStates(t *testing.T) {
 
 	t.Run("loaded sources are listed instead of the defaults note", func(t *testing.T) {
 		loader := prompts.NewPromptLoader(&config.Config{})
-		_, err := loader.SystemPrompt("")
+		_, err := loader.AnalysisMessages("c", "", "", 0)
 		require.NoError(t, err)
 		getDefaultPromptLoader = func() *prompts.PromptLoader { return loader }
 
