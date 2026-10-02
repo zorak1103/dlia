@@ -131,6 +131,26 @@ func TestConfigYAML_ContainsDockerConfig(t *testing.T) {
 	}
 }
 
+func TestConfigYAML_ContainsSuppressSocketWarning(t *testing.T) {
+	content := string(ConfigYAML)
+
+	for _, want := range []string{"suppress_socket_warning: false", "tcp://socket-proxy:2375"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("Expected ConfigYAML to contain %q", want)
+		}
+	}
+}
+
+func TestEnvFile_ContainsSuppressSocketWarning(t *testing.T) {
+	content := string(EnvFile)
+
+	for _, want := range []string{"# DLIA_DOCKER_SUPPRESS_SOCKET_WARNING=false", "# DLIA_DOCKER_SOCKET_PATH=tcp://socket-proxy:2375"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("Expected EnvFile to contain %q", want)
+		}
+	}
+}
+
 func TestConfigYAML_ContainsNotificationConfig(t *testing.T) {
 	content := string(ConfigYAML)
 
