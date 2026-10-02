@@ -100,6 +100,10 @@ func ParseThreshold(s string) (Level, error) {
 // and a trailing period is permitted after the value.
 var severityLineRe = regexp.MustCompile(`(?i)^\s*[*_` + "`" + `]*\s*SEVERITY\s*[*_` + "`" + `]*\s*:\s*[*_` + "`" + `]*\s*([a-z]+)\s*[*_` + "`" + `.]*\s*$`)
 
+// looseSeverityRe matches any line that looks like an attempt at a severity line, including
+// malformed ones (e.g. "SEVERITY: critical (disk full)" or "Severity Level: critical").
+var looseSeverityRe = regexp.MustCompile(`(?i)^\s*[*_` + "`" + `]*\s*SEVERITY\b[^:\n]{0,20}:`)
+
 // parseValue maps a raw level string to a Level, returning (level, true) on success.
 func parseValue(raw string) (Level, bool) {
 	switch strings.ToLower(raw) {
@@ -118,17 +122,21 @@ func parseValue(raw string) (Level, bool) {
 //
 // Only the last matching line is removed. If no line matches, Unknown is returned
 // and the original text is returned unchanged. If the last match has an unrecognised
-// value, Unknown is returned and that line is still removed. Trailing whitespace is
+// value, Unknown is returned and that line is still removed. If a malformed severity-like line\n// appears after the last strict match (or no strict match exists), Unknown is returned and the\n// text is left unchanged so the malformed line stays visible. Trailing whitespace is
 // trimmed from the returned text (but only when a SEVERITY line was found).
 func Parse(text string) (level Level, cleaned string) {
 	lines := strings.Split(text, "\n")
 
 	lastMatchIdx := -1
+	lastLooseIdx := -1
 	var lastRaw string
 
 	for i, line := range lines {
 		// Trim a trailing \r for CRLF input before matching.
 		trimmed := strings.TrimRight(line, "\r")
+		if looseSeverityRe.MatchString(trimmed) {
+			lastLooseIdx = i
+		}
 		m := severityLineRe.FindStringSubmatch(trimmed)
 		if m != nil {
 			lastMatchIdx = i
@@ -136,8 +144,8 @@ func Parse(text string) (level Level, cleaned string) {
 		}
 	}
 
-	if lastMatchIdx == -1 {
-		// No SEVERITY line found; return original text unchanged.
+	if lastMatchIdx == -1 || lastLooseIdx > lastMatchIdx {
+		// No well-formed final SEVERITY line; return original text unchanged.
 		return Unknown, text
 	}
 

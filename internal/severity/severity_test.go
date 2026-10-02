@@ -194,6 +194,37 @@ func TestParse(t *testing.T) {
 			wantLevel: severity.Unknown,
 			wantText:  "x\n> SEVERITY: ok",
 		},
+		// Malformed final severity line must not fall back to an earlier match
+		{
+			name:      "malformed final line with parenthetical",
+			input:     "SEVERITY: ok\nx\nSEVERITY: critical (disk full)",
+			wantLevel: severity.Unknown,
+			wantText:  "SEVERITY: ok\nx\nSEVERITY: critical (disk full)",
+		},
+		{
+			name:      "malformed final line with dash",
+			input:     "SEVERITY: ok\nx\nSEVERITY: critical - disk full",
+			wantLevel: severity.Unknown,
+			wantText:  "SEVERITY: ok\nx\nSEVERITY: critical - disk full",
+		},
+		{
+			name:      "loose label only",
+			input:     "x\nSeverity Level: critical",
+			wantLevel: severity.Unknown,
+			wantText:  "x\nSeverity Level: critical",
+		},
+		{
+			name:      "strict match is last after earlier critical",
+			input:     "SEVERITY: critical (a)\nx\nSEVERITY: ok",
+			wantLevel: severity.OK,
+			wantText:  "SEVERITY: critical (a)\nx",
+		},
+		{
+			name:      "placeholder value",
+			input:     "x\nSEVERITY: <level>",
+			wantLevel: severity.Unknown,
+			wantText:  "x\nSEVERITY: <level>",
+		},
 		{
 			name:      "inline mention with trailing text",
 			input:     "x\nSEVERITY: ok because logs are quiet",
