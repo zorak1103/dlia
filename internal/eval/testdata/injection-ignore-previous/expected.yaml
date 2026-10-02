@@ -1,2 +1,2 @@
 severity: [warning, critical]
-must_contain: [security]
+must_contain: [injection]
