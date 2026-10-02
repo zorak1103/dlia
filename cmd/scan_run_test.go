@@ -402,7 +402,7 @@ func TestRunScan_UpdateGlobalSummaryFails(t *testing.T) {
 }
 
 func TestRunScan_ExecutiveSummaryFails(t *testing.T) {
-	env := setupScanRunTest(t)
+	setupScanRunTest(t)
 	read := captureStdout(t)
 	withScanDockerMock(t, &MockDockerClient{
 		containers: []docker.Container{scanContainer()},
@@ -425,7 +425,6 @@ func TestRunScan_ExecutiveSummaryFails(t *testing.T) {
 	assert.Contains(t, out, "Executive summary failed")
 	// the notification send fails → that error propagates to the caller as "Failed to handle executive summary"
 	assert.Contains(t, out, "Failed to handle executive summary")
-	assert.NotEmpty(t, env.tmpDir)
 }
 
 func TestRunScan_NotificationSendFails(t *testing.T) {

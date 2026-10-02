@@ -609,12 +609,12 @@ func TestHandleExecutiveSummaryAndNotifications_NotifierInitError_Verbose(t *tes
 	}
 }
 
-// TestSendNotificationIfNeeded_VerboseMode tests verbose mode (disabled path)
-func TestSendNotificationIfNeeded_VerboseMode(t *testing.T) {
+// TestHandleExecutiveSummaryAndNotifications_Disabled tests that disabled notifications return no error.
+func TestHandleExecutiveSummaryAndNotifications_Disabled(t *testing.T) {
 	t.Parallel()
 
 	scanCfg := newTestScanConfig()
-	scanCfg.verbose = true
+	scanCfg.verbose = false
 
 	cfg := &config.Config{
 		Notification: config.NotificationConfig{
@@ -631,6 +631,39 @@ func TestSendNotificationIfNeeded_VerboseMode(t *testing.T) {
 
 	if err != nil {
 		t.Errorf("Expected no error when notifications disabled, got: %v", err)
+	}
+}
+
+// TestHandleExecutiveSummaryAndNotifications_BelowThresholdNoVerboseOutput tests that
+// "Notification skipped" is NOT printed when verbose is off and severity is below threshold.
+func TestHandleExecutiveSummaryAndNotifications_BelowThresholdNoVerboseOutput(t *testing.T) {
+	// Cannot be parallel: captures os.Stdout.
+	read := captureStdout(t)
+
+	scanCfg := newTestScanConfig()
+	scanCfg.verbose = false
+
+	cfg := &config.Config{
+		Notification: config.NotificationConfig{
+			Enabled:     true,
+			ShoutrrURL:  "slack://token@channel",
+			MinSeverity: "warning",
+		},
+	}
+
+	// ok severity is below warning threshold → notification should be skipped silently.
+	outcomes := map[string]knowledge.ServiceOutcome{
+		"container1": {Result: &chunking.AnalyzeResult{Analysis: "Test", Severity: severity.OK}},
+	}
+
+	err := handleExecutiveSummaryAndNotifications(context.Background(), outcomes, cfg, scanCfg)
+	out := read()
+
+	if err != nil {
+		t.Errorf("Expected no error when below threshold, got: %v", err)
+	}
+	if strings.Contains(out, "Notification skipped") {
+		t.Errorf("Expected no 'Notification skipped' output when verbose is off, got: %q", out)
 	}
 }
 

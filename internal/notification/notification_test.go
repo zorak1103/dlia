@@ -239,6 +239,27 @@ func TestFormatScanSummary(t *testing.T) {
 	}
 }
 
+// TestFormatScanSummary_ExactOutput verifies exact message output for two canonical cases.
+func TestFormatScanSummary_ExactOutput(t *testing.T) {
+	fixedTime := time.Date(2026, 10, 2, 15, 4, 5, 0, time.UTC)
+
+	t.Run("empty summary no failures", func(t *testing.T) {
+		got := formatScanSummary("", 0, severity.OK, nil, fixedTime)
+		want := "🔍 DLIA Scan Complete\n🕐 Time: 2026-10-02 15:04:05\n📦 Containers: 0\nSeverity: 🟢 OK\n"
+		if got != want {
+			t.Errorf("formatScanSummary() =\n%q\nwant:\n%q", got, want)
+		}
+	})
+
+	t.Run("non-empty summary with failures", func(t *testing.T) {
+		got := formatScanSummary("the summary", 0, severity.OK, []string{"a", "b"}, fixedTime)
+		want := "🔍 DLIA Scan Complete\n🕐 Time: 2026-10-02 15:04:05\n📦 Containers: 0\nSeverity: 🟢 OK\n❌ Analysis failed: a, b (will be retried)\n\nthe summary"
+		if got != want {
+			t.Errorf("formatScanSummary() =\n%q\nwant:\n%q", got, want)
+		}
+	})
+}
+
 // TestNotifier_SendScanSummary_Disabled tests that a disabled notifier returns nil.
 func TestNotifier_SendScanSummary_Disabled(t *testing.T) {
 	notifier := &Notifier{enabled: false, shoutrrrURL: ""}
