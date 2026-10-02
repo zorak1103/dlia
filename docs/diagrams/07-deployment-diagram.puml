@@ -22,26 +22,37 @@ skinparam cloud {
 
 ' Host System
 node "Host System\n(Linux/Windows/macOS)" as host {
-    
-    artifact "dlia\n(Single Static Binary)" as dlia_bin {
-        component "CLI (Cobra)" as cli
-        component "Config Loader (Viper)" as viper
-        component "Docker SDK" as docker_sdk
-        component "LLM Client" as llm_sdk
-        component "Shoutrrr" as shoutrrr
-        component "Tiktoken" as tiktoken
+
+    node "Docker Compose project\n(recommended)" as compose {
+
+        node "socket-proxy container\n(lscr.io/linuxserver/socket-proxy)" as proxy {
+            [HAProxy\nCONTAINERS=1, ALLOW_LOGS=1\nPOST=0, EVENTS=0\nread_only, no published port] as proxy_rules
+        }
+
+        node "dlia container\n(zorak1103/dlia, UID 1000)" as dlia_ctr {
+            artifact "dlia\n(Single Static Binary)" as dlia_bin {
+                component "CLI (Cobra)" as cli
+                component "Config Loader (Viper)" as viper
+                component "Docker SDK" as docker_sdk
+                component "LLM Client" as llm_sdk
+                component "Shoutrrr" as shoutrrr
+                component "Tiktoken" as tiktoken
+            }
+        }
     }
-    
-    folder "Working Directory" as workdir {
+
+    artifact "dlia binary on host\n(alternative: direct socket)" as dlia_host
+
+    folder "Data Directory\n(./dlia-data → /data in compose,\nworking directory for the host binary)" as workdir {
         file "config.yaml" as config
         file ".env" as env
         file "state.json" as state
-        
+
         folder "reports/" as reports {
             folder "container-a/" as reports_a
             folder "container-b/" as reports_b
         }
-        
+
         folder "knowledge_base/" as kb {
             file "global_summary.md" as global_md
             folder "services/" as services {
@@ -49,7 +60,7 @@ node "Host System\n(Linux/Windows/macOS)" as host {
                 file "container-b_summary.md" as kb_b
             }
         }
-        
+
         folder "config/" as config_dir {
             folder "ignore/" as ignore_dir {
                 file "container-a.md" as ignore_a
@@ -59,14 +70,15 @@ node "Host System\n(Linux/Windows/macOS)" as host {
             }
         }
     }
-    
+
     node "Docker Engine" as docker_engine {
+        file "/var/run/docker.sock" as sock
         [Docker Daemon] as dockerd
-        
+
         node "container-a" as c_a {
             [Application A] as app_a
         }
-        
+
         node "container-b" as c_b {
             [Application B] as app_b
         }
@@ -79,12 +91,12 @@ cloud "LLM Provider" as llm_provider {
         [GPT-4] as gpt4
         [GPT-4o-mini] as gpt4mini
     }
-    
+
     node "OpenRouter" as openrouter {
         [Claude] as claude
         [Mistral] as mistral
     }
-    
+
     node "Local Ollama" as ollama {
         [Llama 3] as llama
         [Mixtral] as mixtral
@@ -98,11 +110,15 @@ cloud "Notification Services" as notify_services {
     [ntfy.sh] as ntfy
 }
 
-' Connections
-dlia_bin --> dockerd : Unix Socket\n/var/run/docker.sock
+' Docker API access
+dlia_bin --> proxy : tcp://socket-proxy:2375\n(internal network, GET/HEAD only)
+proxy --> sock : mount\n(only the proxy sees the socket)
+dlia_host ..> sock : unix socket or named pipe\n(root-equivalent, startup warning)
+sock --> dockerd
 dockerd --> c_a : Container API
 dockerd --> c_b : Container API
 
+' Data directory
 dlia_bin --> config : Read
 dlia_bin --> env : Read
 dlia_bin --> state : Read/Write
@@ -110,10 +126,12 @@ dlia_bin --> reports : Write
 dlia_bin --> kb : Read/Write
 dlia_bin --> ignore_dir : Read
 dlia_bin --> prompts_dir : Read
+dlia_host ..> workdir : same layout
 
+' Egress (default network)
 dlia_bin --> openai : HTTPS
 dlia_bin --> openrouter : HTTPS
-dlia_bin --> ollama : HTTP (localhost)
+dlia_bin --> ollama : HTTP
 
 dlia_bin --> smtp : SMTP/TLS
 dlia_bin --> discord : HTTPS
@@ -123,37 +141,37 @@ dlia_bin --> ntfy : HTTPS
 ' Scheduling
 note bottom of host
   **Scheduling Options**
-  
-  1. **Cron Job** (Recommended)
-     ```
-     */15 * * * * /usr/local/bin/dlia scan
-     ```
-  
-  2. **systemd Timer**
-     ```
-     [Timer]
-     OnBootSec=5min
-     OnUnitActiveSec=15min
-     ```
-  
-  3. **Windows Task Scheduler**
-     Trigger: Every 15 minutes
-     Action: dlia.exe scan
+
+  1. **Cron + Docker Compose** (Recommended)
+     0 * * * * cd /opt/dlia && docker compose run --rm dlia scan
+     API key in /opt/dlia/.env (cron does not see exported variables)
+
+  2. **Host binary** (direct socket, see README "Alternative: direct socket")
+     - Cron: */15 * * * * /usr/local/bin/dlia scan
+     - systemd Timer: OnBootSec=5min, OnUnitActiveSec=15min
+     - Windows Task Scheduler: every 15 minutes, dlia.exe scan
 end note
 
 note right of docker_engine
-  **Docker Socket Paths**
-  
-  Linux: /var/run/docker.sock
-  macOS: /var/run/docker.sock
-  Windows: npipe:////./pipe/docker_engine
-  
-  Auto-detected if not configured
+  **Docker API access**
+
+  Compose (recommended):
+    DLIA_DOCKER_SOCKET_PATH=tcp://socket-proxy:2375
+    403 from the proxy → error names
+    CONTAINERS=1 and ALLOW_LOGS=1
+
+  Host binary (auto-detected if not configured):
+    Linux/macOS: unix:///var/run/docker.sock
+    Windows: npipe:////./pipe/docker_engine
+    Prints a startup warning; silence with
+    docker.suppress_socket_warning: true
+
+  :ro on a socket mount does not limit the API
 end note
 
 note right of llm_provider
   **LLM Configuration**
-  
+
   config.yaml:
   ```yaml
   llm:
@@ -164,7 +182,7 @@ note right of llm_provider
   scan:
     max_window: "24h"
   ```
-  
+
   .env:
   ```
   DLIA_LLM_API_KEY=sk-...
