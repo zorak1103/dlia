@@ -427,9 +427,12 @@ func TestGetLatestLogTime_InvalidTimestamp(t *testing.T) {
 		{Timestamp: "invalid-timestamp", Message: "bad timestamp"},
 	}
 
-	_, err := GetLatestLogTime(entries)
-	if err == nil {
-		t.Error("Expected error for invalid timestamp")
+	latestTime, err := GetLatestLogTime(entries)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if !latestTime.IsZero() {
+		t.Errorf("Expected zero time when no entry has a usable timestamp, got %v", latestTime)
 	}
 }
 

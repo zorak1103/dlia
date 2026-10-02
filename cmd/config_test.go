@@ -236,40 +236,19 @@ func TestConfigCmd_RequiresConfig(t *testing.T) {
 	err := cmd.RunE(cmd, []string{})
 
 	if err == nil {
-		t.Error("Expected error when config is nil")
+		t.Fatal("Expected error when config is nil")
 	}
 
 	expectedError := "configuration not loaded\n\nTo get started, run: dlia init"
 	if err.Error() != expectedError {
 		t.Errorf("Expected %q error, got: %v", expectedError, err)
 	}
-}
 
-func TestConfigCmd_RequiresConfigExitCode2(t *testing.T) {
-	// Reset viper and cfg to test config requirement
-	viper.Reset()
-	originalCfg := cfg
-	cfg = nil
-	defer func() { cfg = originalCfg }()
-
-	var buf bytes.Buffer
-	cmd := configCmd
-	cmd.SetOut(&buf)
-	cmd.SetErr(&buf)
-	t.Cleanup(func() {
-		// Do not leak this test's buffer onto configCmd for later tests.
-		cmd.SetOut(nil)
-		cmd.SetErr(nil)
-	})
-
-	err := cmd.RunE(cmd, []string{})
-
-	require.Error(t, err)
+	// Config errors must exit with code 2 (see README "Exit codes").
 	var ee *exitError
 	if !errors.As(err, &ee) || ee.code != 2 {
 		t.Errorf("expected exitError code 2, got %v", err)
 	}
-	assert.Equal(t, "configuration not loaded\n\nTo get started, run: dlia init", err.Error())
 }
 
 // Helper function to check if string contains substring

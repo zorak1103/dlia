@@ -14,6 +14,7 @@ import (
 	"github.com/zorak1103/dlia/internal/config"
 	"github.com/zorak1103/dlia/internal/docker"
 	"github.com/zorak1103/dlia/internal/knowledge"
+	"github.com/zorak1103/dlia/internal/llm"
 	"github.com/zorak1103/dlia/internal/prompts"
 	"github.com/zorak1103/dlia/internal/severity"
 	"github.com/zorak1103/dlia/internal/state"
@@ -410,28 +411,22 @@ func TestHandleExecutiveSummaryAndNotifications_NotifierInitError(t *testing.T) 
 	}
 }
 
-// TestGenerateExecutiveSummary_Error tests LLM error
+// TestGenerateExecutiveSummary_Error tests LLM error via the newLLMClient
+// seam (no HTTP, no retry backoff).
 func TestGenerateExecutiveSummary_Error(t *testing.T) {
-	ctx := context.Background()
-
-	cfg := &config.Config{
-		LLM: config.LLMConfig{
-			APIKey:  "test-key",
-			Model:   "test-model",
-			BaseURL: "http://invalid-url-that-will-fail",
-		},
-	}
+	original := newLLMClient
+	newLLMClient = func(llm.Options) llm.Client { return &fakeScanLLM{failAll: true} }
+	t.Cleanup(func() { newLLMClient = original })
 
 	containerAnalyses := []prompts.ContainerAnalysis{
 		{Name: "container1", Severity: severity.OK, Analysis: "Test"},
 	}
 
-	// This will fail because the URL is invalid
-	_, err := generateExecutiveSummary(ctx, nil, containerAnalyses, severity.OK, cfg)
+	_, err := generateExecutiveSummary(context.Background(), nil, containerAnalyses, severity.OK, &config.Config{})
 
 	// The function should return an error
 	if err == nil {
-		t.Error("Expected error from LLM call with invalid URL")
+		t.Error("Expected error from LLM call")
 	}
 }
 
