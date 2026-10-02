@@ -330,6 +330,30 @@ DLIA supports **two complementary filtering mechanisms**:
 
 **Example**: Filter out debug logs with regexp (`^DEBUG:`), then use semantic filtering to ignore "connection timeout during nightly backup window."
 
+### Severity
+
+At the end of every analysis, DLIA asks the model to output exactly one line:
+
+```
+SEVERITY: <level>
+```
+
+where `<level>` is `critical`, `warning`, or `ok`. The code reads the **last** matching line so that any earlier occurrences echoed from log content are ignored. The line is stripped from the report. If the line is missing or carries an unrecognised value, the container is treated as `unknown` (ranked between `warning` and `critical`). Containers whose analysis failed entirely also count as `unknown`.
+
+The **overall severity** of a scan is the highest level across all containers. It is shown in the notification and in `knowledge_base/global_summary.md`.
+
+**`notification.min_severity`** (default `warning`, env `DLIA_NOTIFICATION_MIN_SEVERITY`) controls when a notification is sent:
+
+| Value | Effect |
+|-------|--------|
+| `ok` | Send after every scan (previous behaviour) |
+| `warning` | Send when overall severity ≥ warning (default) |
+| `critical` | Send only when overall severity is critical |
+
+The executive-summary LLM call is also skipped when the threshold is not reached. If the summary call fails, the notification is still sent without a summary. Invalid values are rejected at startup (exit code 2).
+
+Custom prompt templates need no change — the `SEVERITY:` instruction is appended automatically in code.
+
 ### Customizing AI Prompts
 
 You can override any of the default prompts the AI uses for its analysis. This allows you to fine-tune its behavior, focus, and output format.

@@ -89,10 +89,14 @@ if (Docker connection OK?) then (yes)
         |#F8F9FA|Scan Command|
         :Save state file;
         :Update global summary;
-        :Generate executive summary via LLM;
         
         if (Notifications enabled?) then (yes)
-            :Send notification;
+            if (Overall severity >= min_severity?) then (yes)
+                :Generate executive summary via LLM;
+                :Send notification;
+            else (no)
+                :Skip notification (below threshold);
+            endif
         else (no)
             :Skip notification;
         endif

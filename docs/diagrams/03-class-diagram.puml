@@ -149,6 +149,7 @@ package "internal/chunking" {
     
     class AnalyzeResult <<struct>> {
         +Analysis string
+        +Severity severity.Level
         +TokensUsed int
         +ChunksUsed int
         +Deduplicated bool
@@ -225,6 +226,7 @@ package "internal/config" {
     class NotificationConfig <<struct>> {
         +ShoutrrrURL string
         +Enabled bool
+        +MinSeverity string
     }
     
     class OutputConfig <<struct>> {
@@ -275,7 +277,7 @@ package "internal/notification" {
         -cfg *config.Config
         -sender shoutrrrTypes.Sender
         +IsEnabled() bool
-        +SendScanSummary(summary string, containerCount int, issuesFound bool) error
+        +SendScanSummary(summary string, containerCount int, overall severity.Level, failed []string) error
         +Send(title, message string) error
     }
     
