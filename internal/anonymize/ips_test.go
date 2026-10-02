@@ -75,6 +75,10 @@ func TestApply_NonIPs(t *testing.T) {
 		"std::cout",
 		"a::b::c",
 		"1.2.3.4.5",
+		"11.2.3.4.5",
+		"v1.10.0.0.5",
+		"1234.1.1.1",
+		"ip:2001:db8::1",
 	}
 	for _, in := range inputs {
 		t.Run(in, func(t *testing.T) {

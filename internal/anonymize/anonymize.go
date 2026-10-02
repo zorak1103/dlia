@@ -8,6 +8,12 @@
 //   - version-like strings such as 1.2.3.4 are valid IPv4 addresses
 //   - hex-only words that are valid IPv6 addresses, such as dead::beef
 //   - values following a secret-looking key in prose ("invalid token: expired")
+//
+// Known misses:
+//   - IPv6 addresses glued to a preceding word or colon (ip:2001:db8::1)
+//   - the Authorization rule masks the rest of the header line, not just the
+//     credential
+//   - multi-line values (only private key blocks are masked across lines)
 package anonymize
 
 import "strconv"
