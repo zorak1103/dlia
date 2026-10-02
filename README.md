@@ -39,8 +39,11 @@
 #### Option 1: Docker Compose (Recommended)
 
 ```bash
+mkdir -p dlia && cd dlia
 curl -O https://raw.githubusercontent.com/zorak1103/dlia/main/docker-compose.yml
-export DLIA_LLM_API_KEY=your-key-here
+echo "DLIA_LLM_API_KEY=your-key-here" > .env   # read by docker compose, also from cron
+mkdir -p dlia-data                             # create it yourself; Docker would create it owned by root
+docker compose run --rm dlia init              # writes config.yaml into ./dlia-data
 docker compose run --rm dlia scan
 ```
 
@@ -670,9 +673,11 @@ With a `unix://` or `npipe://` socket (also when auto-detected), `dlia scan` and
 ### Scheduled Scans with Cron
 
 ```bash
-# Add to crontab for hourly scans (directory with docker-compose.yml)
+# Add to crontab for hourly scans (directory with docker-compose.yml and .env)
 0 * * * * cd /opt/dlia && docker compose run --rm dlia scan
 ```
+
+Cron does not see variables you `export` in your shell. Put `DLIA_LLM_API_KEY` in the `.env` file next to `docker-compose.yml` (as in the Quick Start); docker compose reads it from there.
 
 With a direct socket mount (see [Alternative: direct socket](#alternative-direct-socket)):
 
