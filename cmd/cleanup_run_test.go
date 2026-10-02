@@ -120,6 +120,16 @@ func TestCleanupListCmd_NoWarningForTCP(t *testing.T) {
 	assert.Empty(t, buf.String())
 }
 
+func TestCleanupExecuteCmd_WarnsOnceForLocalSocket(t *testing.T) {
+	setupCleanupRunTest(t)
+	withDockerMock(t, &testMockDockerClient{containers: []docker.Container{}}, nil)
+	buf := captureSocketWarning(t)
+
+	require.NoError(t, cleanupExecuteCmd.RunE(cleanupExecuteCmd, []string{}))
+
+	assert.Equal(t, 1, strings.Count(buf.String(), socketWarningPrefix))
+}
+
 func TestCleanupListCmd_PingFails(t *testing.T) {
 	out := setupCleanupRunTest(t)
 	withDockerMock(t, &testMockDockerClient{pingErr: errors.New("daemon down")}, nil)
