@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/zorak1103/dlia/internal/severity"
 )
 
 func TestLoad_EnvVars(t *testing.T) {
@@ -320,6 +321,7 @@ func TestValidate_ValidConfig(t *testing.T) {
 			StateFile:              "test",
 			KnowledgeRetentionDays: 30,
 		},
+		Notification: NotificationConfig{MinSeverity: "warning"},
 	}
 
 	err := cfg.Validate()
@@ -458,6 +460,7 @@ func TestValidate_InvalidRegexpPattern(t *testing.T) {
 			StateFile:              "test",
 			KnowledgeRetentionDays: 30,
 		},
+		Notification: NotificationConfig{MinSeverity: "warning"},
 		RegexpFilters: map[string]RegexpFilter{
 			"mycontainer": {
 				Enabled:  true,
@@ -482,6 +485,7 @@ func TestValidate_DisabledRegexpFilter_NotValidated(t *testing.T) {
 			StateFile:              "test",
 			KnowledgeRetentionDays: 30,
 		},
+		Notification: NotificationConfig{MinSeverity: "warning"},
 		RegexpFilters: map[string]RegexpFilter{
 			"mycontainer": {
 				Enabled:  false,
@@ -601,9 +605,10 @@ func TestLoad_ValidationErrorWithConfigFileIsNotErrNoConfigFile(t *testing.T) {
 func TestValidate_RetentionBoundaryValues(t *testing.T) {
 	base := func(retention int) *Config {
 		return &Config{
-			Scan:   ScanConfig{MaxWindow: 24 * time.Hour},
-			LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10},
-			Docker: DockerConfig{SocketPath: "test"},
+			Scan:         ScanConfig{MaxWindow: 24 * time.Hour},
+			LLM:          LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10},
+			Docker:       DockerConfig{SocketPath: "test"},
+			Notification: NotificationConfig{MinSeverity: "warning"},
 			Output: OutputConfig{
 				ReportsDir:             "test",
 				KnowledgeBaseDir:       "test",
@@ -879,6 +884,78 @@ func TestValidate_ReliabilityRanges(t *testing.T) {
 
 func validReliabilityConfig() *Config {
 	return &Config{
+		Scan:         ScanConfig{MaxWindow: 24 * time.Hour},
+		LLM:          LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10},
+		Docker:       DockerConfig{SocketPath: "test"},
+		Notification: NotificationConfig{MinSeverity: "warning"},
+		Output: OutputConfig{
+			ReportsDir:             "test",
+			KnowledgeBaseDir:       "test",
+			StateFile:              "test",
+			KnowledgeRetentionDays: 30,
+		},
+	}
+}
+
+func TestLoad_MinSeverityDefault(t *testing.T) {
+	t.Setenv("DLIA_LLM_API_KEY", "test-key")
+
+	cfg, err := Load("")
+	require.NoError(t, err)
+	assert.Equal(t, "warning", cfg.Notification.MinSeverity)
+	assert.Equal(t, severity.Warning, cfg.Notification.Threshold())
+}
+
+func TestLoad_MinSeverityEnv(t *testing.T) {
+	t.Setenv("DLIA_LLM_API_KEY", "test-key")
+	t.Setenv("DLIA_NOTIFICATION_MIN_SEVERITY", "Critical")
+
+	cfg, err := Load("")
+	require.NoError(t, err)
+	assert.Equal(t, severity.Critical, cfg.Notification.Threshold())
+}
+
+func TestValidate_MinSeverity(t *testing.T) {
+	tests := []struct {
+		name        string
+		minSeverity string
+		wantErr     string
+	}{
+		{"min_severity invalid", "high", "notification.min_severity"},
+		{"min_severity unknown", "unknown", "notification.min_severity"},
+		{"min_severity ok", "ok", ""},
+		{"min_severity warning", "warning", ""},
+		{"min_severity critical", "critical", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validMinSeverityConfig()
+			cfg.Notification.MinSeverity = tt.minSeverity
+
+			err := cfg.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestNotificationConfig_Threshold_FallbackOnInvalid(t *testing.T) {
+	n := NotificationConfig{MinSeverity: "bad-value"}
+	assert.Equal(t, severity.Warning, n.Threshold())
+}
+
+func TestNotificationConfig_Threshold_FallbackOnEmpty(t *testing.T) {
+	n := NotificationConfig{}
+	assert.Equal(t, severity.Warning, n.Threshold())
+}
+
+func validMinSeverityConfig() *Config {
+	return &Config{
 		Scan:   ScanConfig{MaxWindow: 24 * time.Hour},
 		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10},
 		Docker: DockerConfig{SocketPath: "test"},
@@ -888,5 +965,6 @@ func validReliabilityConfig() *Config {
 			StateFile:              "test",
 			KnowledgeRetentionDays: 30,
 		},
+		Notification: NotificationConfig{MinSeverity: "warning"},
 	}
 }

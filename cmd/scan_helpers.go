@@ -11,8 +11,10 @@ import (
 	"github.com/zorak1103/dlia/internal/docker"
 	"github.com/zorak1103/dlia/internal/llm"
 	"github.com/zorak1103/dlia/internal/llmlogger"
+	"github.com/zorak1103/dlia/internal/notification"
 	"github.com/zorak1103/dlia/internal/prompts"
 	"github.com/zorak1103/dlia/internal/reporting"
+	"github.com/zorak1103/dlia/internal/severity"
 )
 
 func validateAndFilterContainers(ctx context.Context, dockerClient docker.Client, namePattern string) ([]docker.Container, error) {
@@ -107,6 +109,16 @@ func displayAnalysisResults(result *chunking.AnalyzeResult, scanCfg *scanConfig)
 
 // newLLMClient is a seam for tests to stub LLM client construction.
 var newLLMClient = llm.NewClient
+
+// scanNotifier is the interface used by handleExecutiveSummaryAndNotifications.
+// It allows tests to inject a fake without hitting Shoutrrr.
+type scanNotifier interface {
+	IsEnabled() bool
+	SendScanSummary(summary string, containerCount int, overall severity.Level, failed []string) error
+}
+
+// newNotifier is a seam for tests to stub notifier construction.
+var newNotifier = func(cfg *config.Config) (scanNotifier, error) { return notification.NewNotifier(cfg) }
 
 func initializeLLMPipeline(cfg *config.Config, scanCfg *scanConfig) (*chunking.Pipeline, error) {
 	if cfg.LLM.APIKey == "" {

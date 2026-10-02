@@ -344,7 +344,7 @@ func TestHandleReportingAndKnowledge_VerboseCaptured(t *testing.T) {
 	scanCfg.verbose = true
 
 	read := captureStdout(t)
-	handleReportingAndKnowledge("test-container", result, logs, cfg, scanCfg)
+	_ = handleReportingAndKnowledge("test-container", result, logs, cfg, scanCfg)
 	out := read()
 
 	assert.Contains(t, out, "Knowledge base updated")
@@ -352,4 +352,37 @@ func TestHandleReportingAndKnowledge_VerboseCaptured(t *testing.T) {
 	// The KB entry must actually have been written.
 	_, statErr := os.Stat(filepath.Join(cfg.Output.KnowledgeBaseDir, "services", "test-container.md"))
 	assert.NoError(t, statErr, "KB file should be written on success")
+}
+
+func TestProcessSingleContainer_ZeroValueStats(t *testing.T) {
+	withScanLLMMock(t, &fakeScanLLM{analysis: "all good"})
+
+	tmpDir := t.TempDir()
+	st, err := state.Load(filepath.Join(tmpDir, "state.json"))
+	require.NoError(t, err)
+
+	container := docker.Container{ID: "abc123def456abc123def456", Name: "web-1", State: "running"}
+	mockDocker := &MockDockerClient{
+		containers: []docker.Container{container},
+		logs:       map[string][]docker.LogEntry{container.ID: scanLogs},
+	}
+
+	cfg := &config.Config{
+		LLM: config.LLMConfig{APIKey: "test-key", Model: "test-model", BaseURL: "http://test", ContextWindow: 4000},
+		Output: config.OutputConfig{
+			ReportsDir:       filepath.Join(tmpDir, "reports"),
+			KnowledgeBaseDir: filepath.Join(tmpDir, "kb"),
+		},
+	}
+	require.NoError(t, os.MkdirAll(cfg.Output.ReportsDir, 0750))
+	require.NoError(t, os.MkdirAll(filepath.Join(cfg.Output.KnowledgeBaseDir, "services"), 0750))
+
+	var pipeline *chunking.Pipeline
+	var stats scanStats
+
+	assert.NotPanics(t, func() {
+		result := processSingleContainer(context.Background(), mockDocker, st, container, cfg, newTestScanConfig(), 0, &pipeline, &stats)
+		assert.NotNil(t, result)
+	})
+	assert.NotEmpty(t, stats.reportPaths["web-1"])
 }

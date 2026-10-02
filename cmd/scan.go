@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"strings"
+	"sort"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -11,8 +11,8 @@ import (
 	"github.com/zorak1103/dlia/internal/config"
 	"github.com/zorak1103/dlia/internal/docker"
 	"github.com/zorak1103/dlia/internal/knowledge"
-	"github.com/zorak1103/dlia/internal/notification"
 	"github.com/zorak1103/dlia/internal/prompts"
+	"github.com/zorak1103/dlia/internal/severity"
 	"github.com/zorak1103/dlia/internal/state"
 )
 
@@ -102,11 +102,13 @@ func runScan(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	if err := updateGlobalSummary(globalResults, cfg, scanCfg); err != nil {
+	outcomes := buildOutcomes(globalResults, scanStats)
+
+	if err := updateGlobalSummary(outcomes, cfg, scanCfg); err != nil {
 		fmt.Printf("⚠️  Failed to update global summary: %v\n", err)
 	}
 
-	if err := handleExecutiveSummaryAndNotifications(ctx, globalResults, cfg, scanCfg); err != nil {
+	if err := handleExecutiveSummaryAndNotifications(ctx, outcomes, cfg, scanCfg); err != nil {
 		fmt.Printf("⚠️  Failed to handle executive summary: %v\n", err)
 	}
 
@@ -231,6 +233,8 @@ type scanStats struct {
 	totalLogs         int
 	scannedContainers int
 	failedContainers  int
+	failedNames       []string
+	reportPaths       map[string]string
 }
 
 // logGap describes a stretch of logs that was skipped because the saved cursor
@@ -246,7 +250,7 @@ func (g logGap) note(maxWindow time.Duration) string {
 
 func processContainers(ctx context.Context, dockerClient docker.Client, st *state.State, containers []docker.Container, cfg *config.Config, scanCfg *scanConfig, lookbackDuration time.Duration) (map[string]*chunking.AnalyzeResult, scanStats) {
 	globalResults := make(map[string]*chunking.AnalyzeResult, len(containers))
-	stats := scanStats{}
+	stats := scanStats{reportPaths: make(map[string]string)}
 	// Lazy initialization: pipeline is created on first use to avoid unnecessary
 	// LLM client setup if all containers are skipped (e.g., no new logs).
 	var llmPipeline *chunking.Pipeline
@@ -302,13 +306,20 @@ func processSingleContainer(ctx context.Context, dockerClient docker.Client, st 
 		if gapNote != "" {
 			result.CoverageNotes = append(result.CoverageNotes, gapNote)
 		}
-		handleReportingAndKnowledge(container.Name, result, logs, cfg, scanCfg)
+		path := handleReportingAndKnowledge(container.Name, result, logs, cfg, scanCfg)
+		if path != "" {
+			if stats.reportPaths == nil {
+				stats.reportPaths = make(map[string]string)
+			}
+			stats.reportPaths[container.Name] = path
+		}
 		updateContainerState(st, container, logs, scanCfg, lookbackDuration)
 	case scanCfg.dryRun:
 		updateContainerState(st, container, logs, scanCfg, lookbackDuration)
 	default:
 		keepWindowOnFailure(st, container, since, scanCfg, lookbackDuration)
 		stats.failedContainers++
+		stats.failedNames = append(stats.failedNames, container.Name)
 	}
 
 	stats.scannedContainers++
@@ -397,8 +408,8 @@ func displayLogsPreview(logs []docker.LogEntry, scanCfg *scanConfig) {
 	}
 }
 
-func handleReportingAndKnowledge(containerName string, result *chunking.AnalyzeResult, logs []docker.LogEntry, cfg *config.Config, scanCfg *scanConfig) {
-	_, err := generateAndSaveReport(containerName, result, logs, cfg, scanCfg)
+func handleReportingAndKnowledge(containerName string, result *chunking.AnalyzeResult, logs []docker.LogEntry, cfg *config.Config, scanCfg *scanConfig) string {
+	path, err := generateAndSaveReport(containerName, result, logs, cfg, scanCfg)
 	if err != nil {
 		fmt.Printf("        ⚠️  Failed to save report: %v\n", err)
 	}
@@ -408,6 +419,7 @@ func handleReportingAndKnowledge(containerName string, result *chunking.AnalyzeR
 	} else if scanCfg.verbose {
 		fmt.Printf("        🧠 Knowledge base updated\n")
 	}
+	return path
 }
 
 func updateContainerState(st *state.State, container docker.Container, logs []docker.LogEntry, scanCfg *scanConfig, lookbackDuration time.Duration) {
@@ -445,9 +457,39 @@ func saveStateIfNeeded(st *state.State, scanCfg *scanConfig, lookbackDuration ti
 	return nil
 }
 
-func updateGlobalSummary(globalResults map[string]*chunking.AnalyzeResult, cfg *config.Config, scanCfg *scanConfig) error {
-	if !scanCfg.dryRun && len(globalResults) > 0 {
-		if err := knowledge.UpdateGlobalSummary(globalResults, cfg); err != nil {
+// buildOutcomes assembles the knowledge.ServiceOutcome map from successful
+// results and the per-container report paths collected during the scan.
+func buildOutcomes(globalResults map[string]*chunking.AnalyzeResult, stats scanStats) map[string]knowledge.ServiceOutcome {
+	outcomes := make(map[string]knowledge.ServiceOutcome, len(globalResults)+len(stats.failedNames))
+	for name, res := range globalResults {
+		outcomes[name] = knowledge.ServiceOutcome{
+			Result:     res,
+			ReportPath: stats.reportPaths[name],
+		}
+	}
+	for _, name := range stats.failedNames {
+		outcomes[name] = knowledge.ServiceOutcome{Result: nil}
+	}
+	return outcomes
+}
+
+// overallSeverity returns the maximum severity across all outcomes.
+// Failed containers (nil Result) contribute severity.Unknown.
+func overallSeverity(outcomes map[string]knowledge.ServiceOutcome) severity.Level {
+	var levels []severity.Level
+	for _, o := range outcomes {
+		if o.Result == nil {
+			levels = append(levels, severity.Unknown)
+		} else {
+			levels = append(levels, o.Result.Severity)
+		}
+	}
+	return severity.Max(levels...)
+}
+
+func updateGlobalSummary(outcomes map[string]knowledge.ServiceOutcome, cfg *config.Config, scanCfg *scanConfig) error {
+	if !scanCfg.dryRun && len(outcomes) > 0 {
+		if err := knowledge.UpdateGlobalSummary(outcomes, cfg); err != nil {
 			return err
 		}
 		if scanCfg.verbose {
@@ -457,39 +499,12 @@ func updateGlobalSummary(globalResults map[string]*chunking.AnalyzeResult, cfg *
 	return nil
 }
 
-func handleExecutiveSummaryAndNotifications(ctx context.Context, globalResults map[string]*chunking.AnalyzeResult, cfg *config.Config, scanCfg *scanConfig) error {
-	if scanCfg.dryRun || len(globalResults) == 0 {
+func handleExecutiveSummaryAndNotifications(ctx context.Context, outcomes map[string]knowledge.ServiceOutcome, cfg *config.Config, scanCfg *scanConfig) error {
+	if scanCfg.dryRun || len(outcomes) == 0 {
 		return nil
 	}
 
-	llmPipeline, err := initializeLLMPipeline(cfg, scanCfg)
-	if err != nil {
-		return fmt.Errorf("failed to initialize LLM for executive summary: %w", err)
-	}
-
-	if scanCfg.verbose {
-		fmt.Println("📊 Generating executive summary...")
-	}
-
-	containerAnalyses := make(map[string]string, len(globalResults))
-	for name, result := range globalResults {
-		containerAnalyses[name] = result.Analysis
-	}
-
-	execSummary, err := generateExecutiveSummary(ctx, llmPipeline, containerAnalyses, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to generate executive summary: %w", err)
-	}
-
-	if scanCfg.verbose {
-		fmt.Println("✅ Executive summary generated")
-	}
-
-	return sendNotificationIfNeeded(execSummary, len(globalResults), containerAnalyses, cfg, scanCfg)
-}
-
-func sendNotificationIfNeeded(execSummary string, resultCount int, containerAnalyses map[string]string, cfg *config.Config, scanCfg *scanConfig) error {
-	notifier, err := notification.NewNotifier(cfg)
+	notifier, err := newNotifier(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize notifier: %w", err)
 	}
@@ -498,18 +513,80 @@ func sendNotificationIfNeeded(execSummary string, resultCount int, containerAnal
 		return nil
 	}
 
+	overall := overallSeverity(outcomes)
+	threshold := cfg.Notification.Threshold()
+	if overall < threshold {
+		if scanCfg.verbose {
+			fmt.Printf("Notification skipped (severity %s below threshold %s)\n", overall, threshold)
+		}
+		return nil
+	}
+
+	summary := buildExecSummary(ctx, outcomes, cfg, scanCfg)
+	return notifyDecision(notifier, summary, outcomes, overall, scanCfg)
+}
+
+// buildExecSummary generates the executive summary from successful outcomes.
+// On error it prints a warning and returns an empty string.
+func buildExecSummary(ctx context.Context, outcomes map[string]knowledge.ServiceOutcome, cfg *config.Config, scanCfg *scanConfig) string {
+	analyses := make(map[string]string)
+	for name, o := range outcomes {
+		if o.Result != nil {
+			analyses[name] = o.Result.Analysis
+		}
+	}
+	if len(analyses) == 0 {
+		return ""
+	}
+
+	llmPipeline, err := initializeLLMPipeline(cfg, scanCfg)
+	if err != nil {
+		fmt.Printf("⚠️  Executive summary failed: %v\n", err)
+		return ""
+	}
+
+	if scanCfg.verbose {
+		fmt.Println("📊 Generating executive summary...")
+	}
+
+	summary, err := generateExecutiveSummary(ctx, llmPipeline, analyses, cfg)
+	if err != nil {
+		fmt.Printf("⚠️  Executive summary failed: %v\n", err)
+		return ""
+	}
+
+	if scanCfg.verbose {
+		fmt.Println("✅ Executive summary generated")
+	}
+	return summary
+}
+
+// notifyDecision sends the notification and formats the failed list.
+func notifyDecision(notifier scanNotifier, summary string, outcomes map[string]knowledge.ServiceOutcome, overall severity.Level, scanCfg *scanConfig) error {
 	if scanCfg.verbose {
 		fmt.Println("📧 Sending notification...")
 	}
 
-	issuesFound := detectIssues(containerAnalyses)
+	failed := sortedFailedNames(outcomes)
 
-	if err := notifier.SendScanSummary(execSummary, resultCount, issuesFound); err != nil {
+	if err := notifier.SendScanSummary(summary, len(outcomes), overall, failed); err != nil {
 		return fmt.Errorf("notification failed: %w", err)
 	}
 
 	fmt.Println("✅ Notification sent successfully")
 	return nil
+}
+
+// sortedFailedNames returns the names of failed outcomes in sorted order.
+func sortedFailedNames(outcomes map[string]knowledge.ServiceOutcome) []string {
+	var failed []string
+	for name, o := range outcomes {
+		if o.Result == nil {
+			failed = append(failed, name)
+		}
+	}
+	sort.Strings(failed)
+	return failed
 }
 
 func displayScanSummary(stats scanStats, scanCfg *scanConfig, lookbackDuration time.Duration) {
@@ -554,26 +631,4 @@ func generateExecutiveSummary(ctx context.Context, _ *chunking.Pipeline, contain
 	}
 
 	return summary, nil
-}
-
-// detectIssues performs a basic heuristic scan for common error/warning keywords
-// in the LLM analysis text. This is intentionally conservative: it may produce
-// false positives but ensures that potential issues trigger notifications.
-// Future enhancement: Consider using the LLM to classify issue severity directly.
-func detectIssues(containerAnalyses map[string]string) bool {
-	issueKeywords := []string{
-		"error", "failed", "exception", "critical", "warning",
-		"issue", "problem", "alert", "urgent", "attention",
-	}
-
-	for _, analysis := range containerAnalyses {
-		lowerAnalysis := strings.ToLower(analysis)
-		for _, keyword := range issueKeywords {
-			if strings.Contains(lowerAnalysis, keyword) {
-				return true
-			}
-		}
-	}
-
-	return false
 }

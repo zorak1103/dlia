@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zorak1103/dlia/internal/config"
+	"github.com/zorak1103/dlia/internal/severity"
 )
 
 func TestNewNotifier(t *testing.T) {
@@ -125,42 +127,159 @@ func TestNotifier_IsEnabled(t *testing.T) {
 	}
 }
 
+// TestFormatScanSummary tests the pure formatting function with a fixed time.
+func TestFormatScanSummary(t *testing.T) {
+	fixedTime := time.Date(2026, 10, 2, 15, 4, 5, 0, time.UTC)
+
+	tests := []struct {
+		name           string
+		summary        string
+		containerCount int
+		overall        severity.Level
+		failed         []string
+		wantContains   []string
+		wantAbsent     []string
+	}{
+		{
+			name:           "containers count present",
+			summary:        "all good",
+			containerCount: 3,
+			overall:        severity.Critical,
+			failed:         nil,
+			wantContains:   []string{"📦 Containers: 3"},
+		},
+		{
+			name:           "severity badge present",
+			summary:        "some summary",
+			containerCount: 1,
+			overall:        severity.Critical,
+			failed:         nil,
+			wantContains:   []string{"Severity: 🔴 Critical"},
+		},
+		{
+			name:           "failures line when failures exist",
+			summary:        "text",
+			containerCount: 3,
+			overall:        severity.Warning,
+			failed:         []string{"a", "b"},
+			wantContains:   []string{"❌ Analysis failed: a, b (will be retried)"},
+		},
+		{
+			name:           "no failures line when no failures",
+			summary:        "text",
+			containerCount: 2,
+			overall:        severity.OK,
+			failed:         nil,
+			wantAbsent:     []string{"Analysis failed"},
+		},
+		{
+			name:           "empty summary ends after header block without trailing blank line",
+			summary:        "",
+			containerCount: 1,
+			overall:        severity.OK,
+			failed:         nil,
+			wantAbsent:     []string{"\n\n\n"},
+		},
+		{
+			name:           "non-empty summary appears after one blank line",
+			summary:        "Container alpha is healthy.",
+			containerCount: 1,
+			overall:        severity.OK,
+			failed:         nil,
+			wantContains:   []string{"\n\nContainer alpha is healthy."},
+		},
+		{
+			name:           "header line present",
+			summary:        "",
+			containerCount: 0,
+			overall:        severity.OK,
+			failed:         nil,
+			wantContains:   []string{"🔍 DLIA Scan Complete"},
+		},
+		{
+			name:           "time line present",
+			summary:        "",
+			containerCount: 0,
+			overall:        severity.OK,
+			failed:         nil,
+			wantContains:   []string{"🕐 Time:"},
+		},
+		{
+			name:           "warning badge",
+			summary:        "",
+			containerCount: 2,
+			overall:        severity.Warning,
+			failed:         nil,
+			wantContains:   []string{"Severity: 🟡 Warning"},
+		},
+		{
+			name:           "ok badge",
+			summary:        "",
+			containerCount: 2,
+			overall:        severity.OK,
+			failed:         nil,
+			wantContains:   []string{"Severity: 🟢 OK"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatScanSummary(tt.summary, tt.containerCount, tt.overall, tt.failed, fixedTime)
+			for _, want := range tt.wantContains {
+				if !strings.Contains(got, want) {
+					t.Errorf("formatScanSummary() missing %q in:\n%s", want, got)
+				}
+			}
+			for _, absent := range tt.wantAbsent {
+				if strings.Contains(got, absent) {
+					t.Errorf("formatScanSummary() unexpectedly contains %q in:\n%s", absent, got)
+				}
+			}
+		})
+	}
+}
+
+// TestFormatScanSummary_ExactOutput verifies exact message output for two canonical cases.
+func TestFormatScanSummary_ExactOutput(t *testing.T) {
+	fixedTime := time.Date(2026, 10, 2, 15, 4, 5, 0, time.UTC)
+
+	t.Run("empty summary no failures", func(t *testing.T) {
+		got := formatScanSummary("", 0, severity.OK, nil, fixedTime)
+		want := "🔍 DLIA Scan Complete\n🕐 Time: 2026-10-02 15:04:05\n📦 Containers: 0\nSeverity: 🟢 OK\n"
+		if got != want {
+			t.Errorf("formatScanSummary() =\n%q\nwant:\n%q", got, want)
+		}
+	})
+
+	t.Run("non-empty summary with failures", func(t *testing.T) {
+		got := formatScanSummary("the summary", 0, severity.OK, []string{"a", "b"}, fixedTime)
+		want := "🔍 DLIA Scan Complete\n🕐 Time: 2026-10-02 15:04:05\n📦 Containers: 0\nSeverity: 🟢 OK\n❌ Analysis failed: a, b (will be retried)\n\nthe summary"
+		if got != want {
+			t.Errorf("formatScanSummary() =\n%q\nwant:\n%q", got, want)
+		}
+	})
+}
+
+// TestNotifier_SendScanSummary_Disabled tests that a disabled notifier returns nil.
 func TestNotifier_SendScanSummary_Disabled(t *testing.T) {
-	notifier := &Notifier{
-		enabled:     false,
-		shoutrrrURL: "",
-	}
+	notifier := &Notifier{enabled: false, shoutrrrURL: ""}
 
-	// When notifications are disabled, SendScanSummary should return nil without error
-	err := notifier.SendScanSummary("test summary", 5, true)
+	err := notifier.SendScanSummary("test summary", 5, severity.Warning, nil)
 	if err != nil {
 		t.Errorf("SendScanSummary() with disabled notifications should return nil, got error: %v", err)
 	}
 }
 
-func TestNotifier_SendScanSummary_DisabledWithIssues(t *testing.T) {
-	notifier := &Notifier{
-		enabled:     false,
-		shoutrrrURL: "",
-	}
+// TestNotifier_SendScanSummary_DisabledWithLevel tests disabled notifier with various levels.
+func TestNotifier_SendScanSummary_DisabledWithLevel(t *testing.T) {
+	notifier := &Notifier{enabled: false, shoutrrrURL: ""}
 
-	// Test with issues found
-	err := notifier.SendScanSummary("critical issues found", 10, true)
-	if err != nil {
-		t.Errorf("SendScanSummary() with disabled notifications should return nil, got error: %v", err)
-	}
-}
-
-func TestNotifier_SendScanSummary_DisabledNoIssues(t *testing.T) {
-	notifier := &Notifier{
-		enabled:     false,
-		shoutrrrURL: "",
-	}
-
-	// Test without issues found
-	err := notifier.SendScanSummary("all clear", 3, false)
-	if err != nil {
-		t.Errorf("SendScanSummary() with disabled notifications should return nil, got error: %v", err)
+	levels := []severity.Level{severity.OK, severity.Warning, severity.Unknown, severity.Critical}
+	for _, lvl := range levels {
+		err := notifier.SendScanSummary("test", 3, lvl, []string{"a"})
+		if err != nil {
+			t.Errorf("SendScanSummary() disabled with level %s should return nil, got: %v", lvl, err)
+		}
 	}
 }
 
@@ -202,24 +321,21 @@ func TestNotifier_ShoutrrrURL(t *testing.T) {
 	}
 }
 
-// TestNotifier_ZeroValue tests the zero value behavior
+// TestNotifier_ZeroValue tests the zero value behavior.
 func TestNotifier_ZeroValue(t *testing.T) {
 	notifier := &Notifier{}
 
-	// Zero value should have enabled as false
 	if notifier.IsEnabled() {
 		t.Error("Zero value Notifier should have IsEnabled() = false")
 	}
 
-	// SendScanSummary should not error on zero value notifier
-	err := notifier.SendScanSummary("test", 1, false)
+	err := notifier.SendScanSummary("test", 1, severity.OK, nil)
 	if err != nil {
 		t.Errorf("SendScanSummary() on zero value notifier should return nil, got: %v", err)
 	}
 }
 
 func TestNewNotifier_NilConfig(t *testing.T) {
-	// This test documents the expected behavior when config has zero values
 	cfg := &config.Config{}
 
 	notifier, err := NewNotifier(cfg)
@@ -232,78 +348,77 @@ func TestNewNotifier_NilConfig(t *testing.T) {
 	}
 }
 
-// TestNotifier_SendScanSummary_EdgeCases tests edge cases for SendScanSummary
+// TestNotifier_SendScanSummary_EdgeCases tests edge cases with disabled notifier.
 func TestNotifier_SendScanSummary_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name           string
 		summary        string
 		containerCount int
-		issuesFound    bool
-		wantErr        bool
+		overall        severity.Level
+		failed         []string
 	}{
 		{
 			name:           "empty summary",
 			summary:        "",
 			containerCount: 5,
-			issuesFound:    false,
-			wantErr:        false,
+			overall:        severity.OK,
+			failed:         nil,
 		},
 		{
-			name:           "zero containers with issues",
+			name:           "zero containers with critical",
 			summary:        "test summary",
 			containerCount: 0,
-			issuesFound:    true,
-			wantErr:        false,
+			overall:        severity.Critical,
+			failed:         []string{"x"},
 		},
 		{
 			name:           "zero containers without issues",
 			summary:        "test summary",
 			containerCount: 0,
-			issuesFound:    false,
-			wantErr:        false,
+			overall:        severity.OK,
+			failed:         nil,
 		},
 		{
 			name:           "large container count",
 			summary:        "test summary",
 			containerCount: 10000,
-			issuesFound:    true,
-			wantErr:        false,
+			overall:        severity.Warning,
+			failed:         nil,
 		},
 		{
 			name:           "negative container count",
 			summary:        "test summary",
 			containerCount: -1,
-			issuesFound:    false,
-			wantErr:        false,
+			overall:        severity.OK,
+			failed:         nil,
 		},
 		{
 			name:           "very long summary",
 			summary:        string(make([]byte, 10000)),
 			containerCount: 5,
-			issuesFound:    true,
-			wantErr:        false,
+			overall:        severity.Critical,
+			failed:         nil,
 		},
 		{
 			name:           "summary with special characters",
 			summary:        "Test 🐳 with émojis and spëcial çharacters: \n\t\r",
 			containerCount: 3,
-			issuesFound:    false,
-			wantErr:        false,
+			overall:        severity.OK,
+			failed:         nil,
 		},
 		{
 			name:           "summary with newlines",
 			summary:        "Line 1\nLine 2\nLine 3",
 			containerCount: 7,
-			issuesFound:    true,
-			wantErr:        false,
+			overall:        severity.Warning,
+			failed:         nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Test with disabled notifier - should always succeed
 			notifier := &Notifier{enabled: false}
-			err := notifier.SendScanSummary(tt.summary, tt.containerCount, tt.issuesFound)
+			err := notifier.SendScanSummary(tt.summary, tt.containerCount, tt.overall, tt.failed)
 			if err != nil {
 				t.Errorf("SendScanSummary() with disabled notifier should not error, got: %v", err)
 			}
@@ -311,99 +426,51 @@ func TestNotifier_SendScanSummary_EdgeCases(t *testing.T) {
 	}
 }
 
-// TestNotifier_SendScanSummary_IssuesFlagVariations tests different combinations of inputs
-func TestNotifier_SendScanSummary_IssuesFlagVariations(t *testing.T) {
+// TestNotifier_SendScanSummary_LevelVariations tests different severity levels.
+func TestNotifier_SendScanSummary_LevelVariations(t *testing.T) {
 	tests := []struct {
 		name           string
 		containerCount int
-		issuesFound    bool
-		description    string
+		overall        severity.Level
 	}{
-		{
-			name:           "single container with issues",
-			containerCount: 1,
-			issuesFound:    true,
-			description:    "should handle singular container with issues",
-		},
-		{
-			name:           "single container without issues",
-			containerCount: 1,
-			issuesFound:    false,
-			description:    "should handle singular container without issues",
-		},
-		{
-			name:           "multiple containers with issues",
-			containerCount: 100,
-			issuesFound:    true,
-			description:    "should handle multiple containers with issues",
-		},
-		{
-			name:           "multiple containers without issues",
-			containerCount: 100,
-			issuesFound:    false,
-			description:    "should handle multiple containers without issues",
-		},
+		{"single container ok", 1, severity.OK},
+		{"single container warning", 1, severity.Warning},
+		{"multiple containers critical", 100, severity.Critical},
+		{"multiple containers unknown", 100, severity.Unknown},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			notifier := &Notifier{enabled: false}
-			err := notifier.SendScanSummary("test summary", tt.containerCount, tt.issuesFound)
+			err := notifier.SendScanSummary("test summary", tt.containerCount, tt.overall, nil)
 			if err != nil {
-				t.Errorf("SendScanSummary() %s, got error: %v", tt.description, err)
+				t.Errorf("SendScanSummary() got error: %v", err)
 			}
 		})
 	}
 }
 
-// TestNotifier_EnabledStateConsistency ensures enabled state is consistent
+// TestNotifier_EnabledStateConsistency ensures enabled state is consistent.
 func TestNotifier_EnabledStateConsistency(t *testing.T) {
 	tests := []struct {
 		name        string
 		enabled     bool
 		shoutrrrURL string
 	}{
-		{
-			name:        "enabled with URL",
-			enabled:     true,
-			shoutrrrURL: "slack://token@channel",
-		},
-		{
-			name:        "disabled with URL",
-			enabled:     false,
-			shoutrrrURL: "slack://token@channel",
-		},
-		{
-			name:        "disabled without URL",
-			enabled:     false,
-			shoutrrrURL: "",
-		},
-		{
-			name:        "enabled with discord URL",
-			enabled:     true,
-			shoutrrrURL: "discord://token@webhookid/token",
-		},
-		{
-			name:        "enabled with telegram URL",
-			enabled:     true,
-			shoutrrrURL: "telegram://token@telegram?channels=@channel",
-		},
+		{"enabled with URL", true, "slack://token@channel"},
+		{"disabled with URL", false, "slack://token@channel"},
+		{"disabled without URL", false, ""},
+		{"enabled with discord URL", true, "discord://token@webhookid/token"},
+		{"enabled with telegram URL", true, "telegram://token@telegram?channels=@channel"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			notifier := &Notifier{
-				enabled:     tt.enabled,
-				shoutrrrURL: tt.shoutrrrURL,
-			}
-
-			// IsEnabled should always match the enabled field
+			notifier := &Notifier{enabled: tt.enabled, shoutrrrURL: tt.shoutrrrURL}
 			if notifier.IsEnabled() != tt.enabled {
 				t.Errorf("IsEnabled() = %v, want %v", notifier.IsEnabled(), tt.enabled)
 			}
-
-			// Multiple calls should return consistent results
-			for i := 0; i < 5; i++ {
+			for i := range 5 {
 				if notifier.IsEnabled() != tt.enabled {
 					t.Errorf("IsEnabled() call %d = %v, want %v", i, notifier.IsEnabled(), tt.enabled)
 				}
@@ -412,32 +479,32 @@ func TestNotifier_EnabledStateConsistency(t *testing.T) {
 	}
 }
 
-// TestNotifier_SendScanSummary_MultipleInvocations tests calling SendScanSummary multiple times
+// TestNotifier_SendScanSummary_MultipleInvocations tests calling SendScanSummary multiple times.
 func TestNotifier_SendScanSummary_MultipleInvocations(t *testing.T) {
 	notifier := &Notifier{enabled: false}
 
-	// Call multiple times with different parameters
 	testCases := []struct {
 		summary        string
 		containerCount int
-		issuesFound    bool
+		overall        severity.Level
+		failed         []string
 	}{
-		{"first summary", 5, true},
-		{"second summary", 3, false},
-		{"third summary", 10, true},
-		{"", 0, false},
-		{"final summary", 1, false},
+		{"first summary", 5, severity.Warning, nil},
+		{"second summary", 3, severity.OK, nil},
+		{"third summary", 10, severity.Critical, []string{"c1"}},
+		{"", 0, severity.OK, nil},
+		{"final summary", 1, severity.OK, nil},
 	}
 
 	for i, tc := range testCases {
-		err := notifier.SendScanSummary(tc.summary, tc.containerCount, tc.issuesFound)
+		err := notifier.SendScanSummary(tc.summary, tc.containerCount, tc.overall, tc.failed)
 		if err != nil {
 			t.Errorf("SendScanSummary() invocation %d returned error: %v", i, err)
 		}
 	}
 }
 
-// TestNotifier_FieldAccessibility tests that notifier fields are set correctly
+// TestNotifier_FieldAccessibility tests that notifier fields are set correctly.
 func TestNotifier_FieldAccessibility(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -486,11 +553,9 @@ func TestNotifier_FieldAccessibility(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewNotifier() unexpected error: %v", err)
 			}
-
 			if notifier.enabled != tt.wantEnabled {
 				t.Errorf("notifier.enabled = %v, want %v", notifier.enabled, tt.wantEnabled)
 			}
-
 			if notifier.shoutrrrURL != tt.wantShoutrrrURL {
 				t.Errorf("notifier.shoutrrrURL = %q, want %q", notifier.shoutrrrURL, tt.wantShoutrrrURL)
 			}
@@ -498,112 +563,88 @@ func TestNotifier_FieldAccessibility(t *testing.T) {
 	}
 }
 
-// TestNotifier_ConcurrentAccess tests thread safety of IsEnabled
+// TestNotifier_ConcurrentAccess tests thread safety of IsEnabled.
 func TestNotifier_ConcurrentAccess(t *testing.T) {
-	notifier := &Notifier{
-		enabled:     true,
-		shoutrrrURL: "slack://token@channel",
-	}
+	notifier := &Notifier{enabled: true, shoutrrrURL: "slack://token@channel"}
 
-	// Spawn multiple goroutines to call IsEnabled concurrently
 	done := make(chan bool)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				_ = notifier.IsEnabled()
 			}
 			done <- true
 		}()
 	}
-
-	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
-	// Verify state hasn't changed
 	if !notifier.IsEnabled() {
 		t.Error("IsEnabled() should still return true after concurrent access")
 	}
 }
 
-// TestNotifier_SendScanSummary_MessageFormat tests the message formatting
+// TestNotifier_SendScanSummary_MessageFormat tests the send path exercises formatting.
 func TestNotifier_SendScanSummary_MessageFormat(t *testing.T) {
 	tests := []struct {
 		name           string
 		summary        string
 		containerCount int
-		issuesFound    bool
+		overall        severity.Level
+		failed         []string
 		expectError    bool
 	}{
 		{
-			name:           "with issues found",
+			name:           "critical level",
 			summary:        "Critical vulnerabilities detected",
 			containerCount: 5,
-			issuesFound:    true,
-			expectError:    true, // Will fail because URL is invalid, but tests the formatting path
+			overall:        severity.Critical,
+			failed:         nil,
+			expectError:    true,
 		},
 		{
-			name:           "without issues",
+			name:           "ok level",
 			summary:        "All containers are healthy",
 			containerCount: 3,
-			issuesFound:    false,
-			expectError:    true, // Will fail because URL is invalid, but tests the formatting path
+			overall:        severity.OK,
+			failed:         nil,
+			expectError:    true,
 		},
 		{
-			name:           "empty summary with issues",
+			name:           "with failures",
 			summary:        "",
 			containerCount: 10,
-			issuesFound:    true,
+			overall:        severity.Unknown,
+			failed:         []string{"a", "b"},
 			expectError:    true,
 		},
 		{
 			name:           "single container",
 			summary:        "Container checked",
 			containerCount: 1,
-			issuesFound:    false,
-			expectError:    true,
-		},
-		{
-			name:           "many containers",
-			summary:        "Large scale scan completed",
-			containerCount: 500,
-			issuesFound:    true,
+			overall:        severity.Warning,
+			failed:         nil,
 			expectError:    true,
 		},
 		{
 			name:           "summary with newlines",
 			summary:        "Line 1\nLine 2\nLine 3",
 			containerCount: 2,
-			issuesFound:    false,
-			expectError:    true,
-		},
-		{
-			name:           "summary with special characters",
-			summary:        "Test 🔥 émojis and spëcial çhars",
-			containerCount: 7,
-			issuesFound:    true,
+			overall:        severity.OK,
+			failed:         nil,
 			expectError:    true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Use an invalid URL that will fail but still exercises the message formatting code
-			notifier := &Notifier{
-				enabled:     true,
-				shoutrrrURL: "invalid://test",
-			}
-
-			err := notifier.SendScanSummary(tt.summary, tt.containerCount, tt.issuesFound)
-
-			// We expect an error because the URL is invalid, but this still tests
-			// that the message formatting code path is executed
+			notifier := &Notifier{enabled: true, shoutrrrURL: "invalid://test"}
+			err := notifier.SendScanSummary(tt.summary, tt.containerCount, tt.overall, tt.failed)
 			if tt.expectError {
 				if err == nil {
 					t.Error("SendScanSummary() expected error with invalid URL, got nil")
 				}
-				// Check that error is wrapped properly
 				if err != nil && !strings.Contains(err.Error(), "notification failed") {
 					t.Errorf("SendScanSummary() error should contain 'notification failed', got: %v", err)
 				}
@@ -612,66 +653,29 @@ func TestNotifier_SendScanSummary_MessageFormat(t *testing.T) {
 	}
 }
 
-// TestNotifier_SendScanSummary_ErrorWrapping tests error wrapping
+// TestNotifier_SendScanSummary_ErrorWrapping tests error wrapping includes severity.
 func TestNotifier_SendScanSummary_ErrorWrapping(t *testing.T) {
-	notifier := &Notifier{
-		enabled:     true,
-		shoutrrrURL: "totally-invalid-url-format",
-	}
+	notifier := &Notifier{enabled: true, shoutrrrURL: "totally-invalid-url-format"}
 
-	err := notifier.SendScanSummary("test", 1, false)
+	err := notifier.SendScanSummary("test", 1, severity.OK, nil)
 	if err == nil {
 		t.Fatal("SendScanSummary() with invalid URL should return error")
 	}
 
-	// Check error message format
 	errMsg := err.Error()
 	if !strings.Contains(errMsg, "notification failed") {
 		t.Errorf("Error should be wrapped with 'notification failed', got: %s", errMsg)
 	}
 }
 
-// TestNotifier_SendScanSummary_IssuesDetectedPath tests the issues detected path
-func TestNotifier_SendScanSummary_IssuesDetectedPath(t *testing.T) {
-	notifier := &Notifier{
-		enabled:     true,
-		shoutrrrURL: "generic://invalid-but-exercises-code-path",
-	}
-
-	// Test with issues found - this exercises the issuesFound == true branch
-	err := notifier.SendScanSummary("Security issues found", 5, true)
-	if err == nil {
-		t.Error("Expected error with invalid URL")
-	}
-}
-
-// TestNotifier_SendScanSummary_NoIssuesPath tests the no issues path
-func TestNotifier_SendScanSummary_NoIssuesPath(t *testing.T) {
-	notifier := &Notifier{
-		enabled:     true,
-		shoutrrrURL: "generic://invalid-but-exercises-code-path",
-	}
-
-	// Test without issues - this exercises the issuesFound == false branch
-	err := notifier.SendScanSummary("All clear", 3, false)
-	if err == nil {
-		t.Error("Expected error with invalid URL")
-	}
-}
-
-// TestNotifier_SendScanSummary_ContainerCountFormatting tests various container counts
+// TestNotifier_SendScanSummary_ContainerCountFormatting tests various container counts.
 func TestNotifier_SendScanSummary_ContainerCountFormatting(t *testing.T) {
 	counts := []int{0, 1, 10, 100, 999, 1000, 10000, -1}
 
 	for _, count := range counts {
 		t.Run(fmt.Sprintf("count_%d", count), func(t *testing.T) {
-			notifier := &Notifier{
-				enabled:     true,
-				shoutrrrURL: "invalid://url",
-			}
-
-			err := notifier.SendScanSummary("test", count, false)
-			// We expect an error due to invalid URL, but the formatting code is exercised
+			notifier := &Notifier{enabled: true, shoutrrrURL: "invalid://url"}
+			err := notifier.SendScanSummary("test", count, severity.OK, nil)
 			if err == nil {
 				t.Error("Expected error with invalid URL")
 			}
@@ -679,61 +683,7 @@ func TestNotifier_SendScanSummary_ContainerCountFormatting(t *testing.T) {
 	}
 }
 
-// TestNotifier_SendScanSummary_SummaryVariations tests different summary inputs
-func TestNotifier_SendScanSummary_SummaryVariations(t *testing.T) {
-	summaries := []string{
-		"",
-		"Simple summary",
-		"Multi\nLine\nSummary",
-		"Summary with\ttabs",
-		"Summary with special chars: @#$%^&*()",
-		"Very " + string(make([]byte, 1000)) + " long summary",
-		"🐳 Docker 🔥 Fire 💡 Light 🎉 Party",
-	}
-
-	for i, summary := range summaries {
-		t.Run(fmt.Sprintf("summary_%d", i), func(t *testing.T) {
-			notifier := &Notifier{
-				enabled:     true,
-				shoutrrrURL: "invalid://url",
-			}
-
-			err := notifier.SendScanSummary(summary, 5, false)
-			if err == nil {
-				t.Error("Expected error with invalid URL")
-			}
-		})
-	}
-}
-
-// TestNotifier_SendScanSummary_BothBranches tests both branches of issuesFound
-func TestNotifier_SendScanSummary_BothBranches(t *testing.T) {
-	notifier := &Notifier{
-		enabled:     true,
-		shoutrrrURL: "invalid://url",
-	}
-
-	// Test issuesFound = true branch
-	err1 := notifier.SendScanSummary("Issues", 5, true)
-	if err1 == nil {
-		t.Error("Expected error for true branch")
-	}
-
-	// Test issuesFound = false branch
-	err2 := notifier.SendScanSummary("No issues", 5, false)
-	if err2 == nil {
-		t.Error("Expected error for false branch")
-	}
-
-	// Both should return errors (invalid URL) but exercise different code paths
-	if err1 != nil && err2 != nil {
-		// Both paths were exercised
-		t.Log("Both code paths exercised successfully")
-	}
-}
-
-// Helper function to check if string contains substring
-// TestNewNotifier_ConfigVariations tests various config combinations
+// TestNewNotifier_ConfigVariations tests various config combinations.
 func TestNewNotifier_ConfigVariations(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -816,13 +766,13 @@ func TestNewNotifier_ConfigVariations(t *testing.T) {
 	}
 }
 
-// TestNotifier_SendScanSummary_SendFailure pins the send-failure error
-// message: the service type is extracted from the URL scheme, and a URL
-// without a scheme reports "unknown".
+// TestNotifier_SendScanSummary_SendFailure pins the send-failure error message.
+// The service type is extracted from the URL scheme; a URL without a scheme
+// reports "unknown".
 func TestNotifier_SendScanSummary_SendFailure(t *testing.T) {
 	notifier := &Notifier{enabled: true, shoutrrrURL: "://not-a-valid-url"}
 
-	err := notifier.SendScanSummary("summary", 2, true)
+	err := notifier.SendScanSummary("summary", 2, severity.Critical, nil)
 	if err == nil {
 		t.Fatal("Expected error when the shoutrrr send fails")
 	}
@@ -833,7 +783,7 @@ func TestNotifier_SendScanSummary_SendFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "containers: 2") {
 		t.Errorf("Expected container count in error, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "issues: true") {
-		t.Errorf("Expected issues flag in error, got: %v", err)
+	if !strings.Contains(err.Error(), "severity: critical") {
+		t.Errorf("Expected severity in error, got: %v", err)
 	}
 }

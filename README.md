@@ -190,6 +190,7 @@ docker:
 notification:
   shoutrrr_url: ""  # smtp://, discord://, slack://, etc.
   enabled: false
+  min_severity: "warning"  # ok | warning | critical
 
 output:
   reports_dir: "./reports"
@@ -328,6 +329,30 @@ DLIA supports **two complementary filtering mechanisms**:
 **Best Practice**: Use regexp filters for volume reduction, then use semantic filtering for nuanced context-aware filtering of remaining logs.
 
 **Example**: Filter out debug logs with regexp (`^DEBUG:`), then use semantic filtering to ignore "connection timeout during nightly backup window."
+
+### Severity
+
+At the end of every analysis, DLIA asks the model to output exactly one line:
+
+```
+SEVERITY: <level>
+```
+
+where `<level>` is `critical`, `warning`, or `ok`. The code reads the **last** matching line so that any earlier occurrences echoed from log content are ignored. The line is stripped from the report. If the line is missing or carries an unrecognised value, the container is treated as `unknown` (ranked between `warning` and `critical`). Containers whose analysis failed entirely also count as `unknown`.
+
+The **overall severity** of a scan is the highest level across all containers. It is shown in the notification; `global_summary.md` shows each service's badge and how many services need attention. Since this release, notifications are only sent when the scan reaches `min_severity` (default `warning`), so users who want a message after every scan must set `min_severity: ok`.
+
+**`notification.min_severity`** (default `warning`, env `DLIA_NOTIFICATION_MIN_SEVERITY`) controls when a notification is sent:
+
+| Value | Effect |
+|-------|--------|
+| `ok` | Send after every scan (previous behaviour) |
+| `warning` | Send when overall severity ≥ warning (default) |
+| `critical` | Send only when overall severity is critical |
+
+The executive-summary LLM call is also skipped when the threshold is not reached. If the summary call fails, the notification is still sent without a summary. Invalid values are rejected at startup (exit code 2).
+
+Custom prompt templates need no change — the `SEVERITY:` instruction is appended automatically in code.
 
 ### Customizing AI Prompts
 

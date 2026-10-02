@@ -13,6 +13,8 @@ import (
 	"github.com/zorak1103/dlia/internal/chunking"
 	"github.com/zorak1103/dlia/internal/config"
 	"github.com/zorak1103/dlia/internal/docker"
+	"github.com/zorak1103/dlia/internal/knowledge"
+	"github.com/zorak1103/dlia/internal/severity"
 	"github.com/zorak1103/dlia/internal/state"
 )
 
@@ -229,7 +231,7 @@ func TestHandleReportingAndKnowledge(t *testing.T) {
 	}
 
 	// Should not panic
-	handleReportingAndKnowledge("test-container", result, logs, cfg, scanCfg)
+	_ = handleReportingAndKnowledge("test-container", result, logs, cfg, scanCfg)
 }
 
 // TestHandleReportingAndKnowledge_VerboseMode tests verbose output
@@ -260,7 +262,7 @@ func TestHandleReportingAndKnowledge_VerboseMode(t *testing.T) {
 		{Timestamp: "2023-01-01T10:00:00Z", Stream: "stdout", Message: "Test"},
 	}
 
-	handleReportingAndKnowledge("test-container", result, logs, cfg, scanCfg)
+	_ = handleReportingAndKnowledge("test-container", result, logs, cfg, scanCfg)
 }
 
 // TestUpdateGlobalSummary_DryRun tests dry run mode
@@ -270,13 +272,13 @@ func TestUpdateGlobalSummary_DryRun(t *testing.T) {
 	scanCfg := newTestScanConfig()
 	scanCfg.dryRun = true
 
-	results := map[string]*chunking.AnalyzeResult{
-		"container1": {Analysis: "Test"},
+	outcomes := map[string]knowledge.ServiceOutcome{
+		"container1": {Result: &chunking.AnalyzeResult{Analysis: "Test"}},
 	}
 
 	cfg := &config.Config{}
 
-	err := updateGlobalSummary(results, cfg, scanCfg)
+	err := updateGlobalSummary(outcomes, cfg, scanCfg)
 
 	if err != nil {
 		t.Errorf("Expected no error in dry run, got: %v", err)
@@ -290,11 +292,11 @@ func TestUpdateGlobalSummary_NoResults(t *testing.T) {
 	scanCfg := newTestScanConfig()
 	scanCfg.dryRun = false
 
-	results := map[string]*chunking.AnalyzeResult{}
+	outcomes := map[string]knowledge.ServiceOutcome{}
 
 	cfg := &config.Config{}
 
-	err := updateGlobalSummary(results, cfg, scanCfg)
+	err := updateGlobalSummary(outcomes, cfg, scanCfg)
 
 	if err != nil {
 		t.Errorf("Expected no error with empty results, got: %v", err)
@@ -319,11 +321,11 @@ func TestUpdateGlobalSummary_Success(t *testing.T) {
 	// Create KB directory
 	_ = os.MkdirAll(cfg.Output.KnowledgeBaseDir, 0750)
 
-	results := map[string]*chunking.AnalyzeResult{
-		"container1": {Analysis: "Test analysis"},
+	outcomes := map[string]knowledge.ServiceOutcome{
+		"container1": {Result: &chunking.AnalyzeResult{Analysis: "Test analysis"}},
 	}
 
-	err := updateGlobalSummary(results, cfg, scanCfg)
+	err := updateGlobalSummary(outcomes, cfg, scanCfg)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -338,12 +340,12 @@ func TestHandleExecutiveSummaryAndNotifications_DryRun(t *testing.T) {
 	scanCfg.dryRun = true
 
 	ctx := context.Background()
-	results := map[string]*chunking.AnalyzeResult{
-		"container1": {Analysis: "Test"},
+	outcomes := map[string]knowledge.ServiceOutcome{
+		"container1": {Result: &chunking.AnalyzeResult{Analysis: "Test"}},
 	}
 	cfg := &config.Config{}
 
-	err := handleExecutiveSummaryAndNotifications(ctx, results, cfg, scanCfg)
+	err := handleExecutiveSummaryAndNotifications(ctx, outcomes, cfg, scanCfg)
 
 	if err != nil {
 		t.Errorf("Expected no error in dry run, got: %v", err)
@@ -358,85 +360,43 @@ func TestHandleExecutiveSummaryAndNotifications_NoResults(t *testing.T) {
 	scanCfg.dryRun = false
 
 	ctx := context.Background()
-	results := map[string]*chunking.AnalyzeResult{}
+	outcomes := map[string]knowledge.ServiceOutcome{}
 	cfg := &config.Config{}
 
-	err := handleExecutiveSummaryAndNotifications(ctx, results, cfg, scanCfg)
+	err := handleExecutiveSummaryAndNotifications(ctx, outcomes, cfg, scanCfg)
 
 	if err != nil {
 		t.Errorf("Expected no error with empty results, got: %v", err)
 	}
 }
 
-// TestHandleExecutiveSummaryAndNotifications_LLMInitError tests LLM init error
-func TestHandleExecutiveSummaryAndNotifications_LLMInitError(t *testing.T) {
+// TestHandleExecutiveSummaryAndNotifications_NotifierInitError verifies that
+// an enabled notifier with an invalid config (empty URL) causes an error.
+func TestHandleExecutiveSummaryAndNotifications_NotifierInitError(t *testing.T) {
 	t.Parallel()
 
 	scanCfg := newTestScanConfig()
 	scanCfg.dryRun = false
 
 	ctx := context.Background()
-	results := map[string]*chunking.AnalyzeResult{
-		"container1": {Analysis: "Test"},
+	outcomes := map[string]knowledge.ServiceOutcome{
+		"container1": {Result: &chunking.AnalyzeResult{Analysis: "Test", Severity: severity.Warning}},
 	}
 
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			APIKey: "", // No API key
+			APIKey: "key",
 		},
-	}
-
-	err := handleExecutiveSummaryAndNotifications(ctx, results, cfg, scanCfg)
-
-	if err == nil {
-		t.Error("Expected error when LLM init fails")
-	}
-}
-
-// TestSendNotificationIfNeeded_Disabled tests disabled notification
-func TestSendNotificationIfNeeded_Disabled(t *testing.T) {
-	t.Parallel()
-
-	scanCfg := newTestScanConfig()
-
-	cfg := &config.Config{
-		Notification: config.NotificationConfig{
-			Enabled: false,
-		},
-	}
-
-	containerAnalyses := map[string]string{
-		"container1": "Test",
-	}
-
-	err := sendNotificationIfNeeded("summary", 1, containerAnalyses, cfg, scanCfg)
-
-	if err != nil {
-		t.Errorf("Expected no error when notifications disabled, got: %v", err)
-	}
-}
-
-// TestSendNotificationIfNeeded_InvalidConfig tests invalid config
-func TestSendNotificationIfNeeded_InvalidConfig(t *testing.T) {
-	t.Parallel()
-
-	scanCfg := newTestScanConfig()
-
-	cfg := &config.Config{
 		Notification: config.NotificationConfig{
 			Enabled:    true,
-			ShoutrrURL: "", // Invalid URL
+			ShoutrrURL: "", // enabled but no URL → notifier init fails
 		},
 	}
 
-	containerAnalyses := map[string]string{
-		"container1": "Test",
-	}
-
-	err := sendNotificationIfNeeded("summary", 1, containerAnalyses, cfg, scanCfg)
+	err := handleExecutiveSummaryAndNotifications(ctx, outcomes, cfg, scanCfg)
 
 	if err == nil {
-		t.Error("Expected error with invalid notification config")
+		t.Error("Expected error when notifier init fails")
 	}
 }
 
@@ -607,19 +567,20 @@ func TestUpdateGlobalSummary_VerboseMode(t *testing.T) {
 	// Create KB directory
 	_ = os.MkdirAll(cfg.Output.KnowledgeBaseDir, 0750)
 
-	results := map[string]*chunking.AnalyzeResult{
-		"container1": {Analysis: "Test analysis"},
+	outcomes := map[string]knowledge.ServiceOutcome{
+		"container1": {Result: &chunking.AnalyzeResult{Analysis: "Test analysis"}},
 	}
 
-	err := updateGlobalSummary(results, cfg, scanCfg)
+	err := updateGlobalSummary(outcomes, cfg, scanCfg)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
 }
 
-// TestHandleExecutiveSummaryAndNotifications_VerboseMode tests verbose mode
-func TestHandleExecutiveSummaryAndNotifications_VerboseMode(t *testing.T) {
+// TestHandleExecutiveSummaryAndNotifications_NotifierInitError_Verbose verifies the
+// same notifier-init failure path with verbose mode enabled.
+func TestHandleExecutiveSummaryAndNotifications_NotifierInitError_Verbose(t *testing.T) {
 	t.Parallel()
 
 	scanCfg := newTestScanConfig()
@@ -627,29 +588,33 @@ func TestHandleExecutiveSummaryAndNotifications_VerboseMode(t *testing.T) {
 	scanCfg.verbose = true
 
 	ctx := context.Background()
-	results := map[string]*chunking.AnalyzeResult{
-		"container1": {Analysis: "Test"},
+	outcomes := map[string]knowledge.ServiceOutcome{
+		"container1": {Result: &chunking.AnalyzeResult{Analysis: "Test", Severity: severity.Warning}},
 	}
 
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			APIKey: "", // No API key to trigger early error
+			APIKey: "key",
+		},
+		Notification: config.NotificationConfig{
+			Enabled:    true,
+			ShoutrrURL: "", // enabled but no URL → notifier init fails
 		},
 	}
 
-	err := handleExecutiveSummaryAndNotifications(ctx, results, cfg, scanCfg)
+	err := handleExecutiveSummaryAndNotifications(ctx, outcomes, cfg, scanCfg)
 
 	if err == nil {
-		t.Error("Expected error when LLM init fails")
+		t.Error("Expected error when notifier init fails")
 	}
 }
 
-// TestSendNotificationIfNeeded_VerboseMode tests verbose mode
-func TestSendNotificationIfNeeded_VerboseMode(t *testing.T) {
+// TestHandleExecutiveSummaryAndNotifications_Disabled tests that disabled notifications return no error.
+func TestHandleExecutiveSummaryAndNotifications_Disabled(t *testing.T) {
 	t.Parallel()
 
 	scanCfg := newTestScanConfig()
-	scanCfg.verbose = true
+	scanCfg.verbose = false
 
 	cfg := &config.Config{
 		Notification: config.NotificationConfig{
@@ -657,14 +622,48 @@ func TestSendNotificationIfNeeded_VerboseMode(t *testing.T) {
 		},
 	}
 
-	containerAnalyses := map[string]string{
-		"container1": "Test",
+	outcomes := map[string]knowledge.ServiceOutcome{
+		"container1": {Result: &chunking.AnalyzeResult{Analysis: "Test"}},
 	}
 
-	err := sendNotificationIfNeeded("summary", 1, containerAnalyses, cfg, scanCfg)
+	// disabled notifier → early return, no error
+	err := handleExecutiveSummaryAndNotifications(context.Background(), outcomes, cfg, scanCfg)
 
 	if err != nil {
 		t.Errorf("Expected no error when notifications disabled, got: %v", err)
+	}
+}
+
+// TestHandleExecutiveSummaryAndNotifications_BelowThresholdNoVerboseOutput tests that
+// "Notification skipped" is NOT printed when verbose is off and severity is below threshold.
+func TestHandleExecutiveSummaryAndNotifications_BelowThresholdNoVerboseOutput(t *testing.T) {
+	// Cannot be parallel: captures os.Stdout.
+	read := captureStdout(t)
+
+	scanCfg := newTestScanConfig()
+	scanCfg.verbose = false
+
+	cfg := &config.Config{
+		Notification: config.NotificationConfig{
+			Enabled:     true,
+			ShoutrrURL:  "slack://token@channel",
+			MinSeverity: "warning",
+		},
+	}
+
+	// ok severity is below warning threshold → notification should be skipped silently.
+	outcomes := map[string]knowledge.ServiceOutcome{
+		"container1": {Result: &chunking.AnalyzeResult{Analysis: "Test", Severity: severity.OK}},
+	}
+
+	err := handleExecutiveSummaryAndNotifications(context.Background(), outcomes, cfg, scanCfg)
+	out := read()
+
+	if err != nil {
+		t.Errorf("Expected no error when below threshold, got: %v", err)
+	}
+	if strings.Contains(out, "Notification skipped") {
+		t.Errorf("Expected no 'Notification skipped' output when verbose is off, got: %q", out)
 	}
 }
 
