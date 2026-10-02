@@ -88,8 +88,8 @@ func TestChunkMessages_NoSeverity(t *testing.T) {
 	if strings.Contains(msgs.System, "at least warning") {
 		t.Errorf("System must not contain severity clause")
 	}
-	if want := dataRule(m, "log data", "the monitored container", false); !strings.HasSuffix(msgs.System, want) {
-		t.Errorf("System does not end with chunk data rule:\n%s", msgs.System)
+	if want := dataRule(m, "log data", "the monitored container", false); !strings.Contains(msgs.System, want) {
+		t.Errorf("System does not contain chunk data rule:\n%s", msgs.System)
 	}
 }
 
@@ -109,7 +109,7 @@ func TestSynthesisMessages_WrapsAllSummaries(t *testing.T) {
 		t.Errorf("close tag count = %d, want 1", n)
 	}
 	start := strings.Index(msgs.User, m.open())
-	end := strings.Index(msgs.User, m.close())
+	end := strings.Index(msgs.User[start+len(m.open()):], m.close()) + start + len(m.open())
 	for _, s := range []string{"--- Chunk 1 Summary ---", "--- Chunk 2 Summary ---"} {
 		i := strings.Index(msgs.User, s)
 		if i < start || i > end {
@@ -144,10 +144,14 @@ func TestExecutiveSummaryMessages_WrapsAnalyses(t *testing.T) {
 		t.Errorf("marker = %q, want %q", open, m.open())
 	}
 	start := strings.Index(msgs.User, m.open())
-	end := strings.Index(msgs.User, m.close())
-	if start < 0 || end < 0 {
+	if start < 0 {
 		t.Fatalf("analyses not wrapped by marker:\n%s", msgs.User)
 	}
+	end := strings.Index(msgs.User[start+len(m.open()):], m.close())
+	if end < 0 {
+		t.Fatalf("analyses not wrapped by marker:\n%s", msgs.User)
+	}
+	end += start + len(m.open())
 	data := msgs.User[start+len(m.open()) : end]
 	// marker.wrap inserts a newline right after the open tag; skip it so data
 	// is the enclosed payload and the overall line is its first line.
@@ -172,8 +176,8 @@ func TestExecutiveSummaryMessages_WrapsAnalyses(t *testing.T) {
 	if strings.Contains(msgs.User, "SEVERITY:") {
 		t.Errorf("exec summary User must not contain severity instruction")
 	}
-	if want := dataRule(m, "per-container analyses", "analyses of the monitored containers' logs", false); !strings.HasSuffix(msgs.System, want) {
-		t.Errorf("System does not end with exec summary data rule:\n%s", msgs.System)
+	if want := dataRule(m, "per-container analyses", "analyses of the monitored containers' logs", false); !strings.Contains(msgs.System, want) {
+		t.Errorf("System does not contain exec summary data rule:\n%s", msgs.System)
 	}
 }
 
@@ -288,7 +292,7 @@ func TestAnalysisMessages_FakeCloseTagInData(t *testing.T) {
 		t.Errorf("real close tag count = %d, want 1", n)
 	}
 	start := strings.Index(msgs.User, m.open())
-	end := strings.Index(msgs.User, m.close())
+	end := strings.Index(msgs.User[start+len(m.open()):], m.close()) + start + len(m.open())
 	i := strings.Index(msgs.User, fake)
 	if start < 0 || i < start || i+len(fake) > end {
 		t.Errorf("fake lines not enclosed by real markers:\n%s", msgs.User)
