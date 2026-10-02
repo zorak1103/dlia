@@ -308,6 +308,9 @@ func processSingleContainer(ctx context.Context, dockerClient docker.Client, st 
 		}
 		path := handleReportingAndKnowledge(container.Name, result, logs, cfg, scanCfg)
 		if path != "" {
+			if stats.reportPaths == nil {
+				stats.reportPaths = make(map[string]string)
+			}
 			stats.reportPaths[container.Name] = path
 		}
 		updateContainerState(st, container, logs, scanCfg, lookbackDuration)
