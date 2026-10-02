@@ -130,7 +130,11 @@ func TestExecutiveSummaryMessages_WrapsAnalyses(t *testing.T) {
 	pl, m := fixedRandLoader(t, &config.Config{})
 	m.kind = "analyses"
 
-	msgs, err := pl.ExecutiveSummaryMessages(map[string]string{"c1": "a1"})
+	analyses := []ContainerAnalysis{
+		{Name: "c1", Severity: severity.Warning, Analysis: "a1"},
+		{Name: "c2", Severity: severity.Critical, Analysis: "a2"},
+	}
+	msgs, err := pl.ExecutiveSummaryMessages(analyses, severity.Critical)
 	if err != nil {
 		t.Fatalf("ExecutiveSummaryMessages() error = %v", err)
 	}
@@ -141,9 +145,20 @@ func TestExecutiveSummaryMessages_WrapsAnalyses(t *testing.T) {
 	}
 	start := strings.Index(msgs.User, m.open())
 	end := strings.Index(msgs.User, m.close())
-	i := strings.Index(msgs.User, "### c1\na1")
-	if start < 0 || end < 0 || i < start || i > end {
-		t.Errorf("analyses not wrapped by marker:\n%s", msgs.User)
+	if start < 0 || end < 0 {
+		t.Fatalf("analyses not wrapped by marker:\n%s", msgs.User)
+	}
+	data := msgs.User[start+len(m.open()) : end]
+	// marker.wrap inserts a newline right after the open tag; skip it so data
+	// is the enclosed payload and the overall line is its first line.
+	data = strings.TrimPrefix(data, "\n")
+	// Overall line is the first line inside the marker.
+	if want := "Overall severity (computed by DLIA): critical"; !strings.HasPrefix(data, want+"\n") {
+		t.Errorf("data does not start with overall line %q:\n%s", want, data)
+	}
+	// Headings carry severity.
+	if !strings.Contains(data, "### c1 (severity: warning)\na1") {
+		t.Errorf("missing c1 heading/analysis:\n%s", data)
 	}
 	if !strings.Contains(msgs.System, m.open()) {
 		t.Errorf("System missing marker")
@@ -162,6 +177,46 @@ func TestExecutiveSummaryMessages_WrapsAnalyses(t *testing.T) {
 	}
 }
 
+func TestExecutiveSummaryMessages_SortOrder(t *testing.T) {
+	pl, _ := fixedRandLoader(t, &config.Config{})
+	analyses := []ContainerAnalysis{
+		{Name: "b", Severity: severity.Warning, Analysis: "x"},
+		{Name: "a", Severity: severity.Unknown, Analysis: "x"},
+		{Name: "c", Severity: severity.Critical, Analysis: "x"},
+		{Name: "d", Severity: severity.OK, Analysis: "x"},
+		{Name: "a2", Severity: severity.Unknown, Analysis: "x"},
+	}
+	msgs, err := pl.ExecutiveSummaryMessages(analyses, severity.Unknown)
+	if err != nil {
+		t.Fatalf("ExecutiveSummaryMessages() error = %v", err)
+	}
+	want := []string{"### c (severity: critical)", "### a (severity: unknown)", "### a2 (severity: unknown)", "### b (severity: warning)", "### d (severity: ok)"}
+	pos := 0
+	for _, w := range want {
+		i := strings.Index(msgs.User[pos:], w)
+		if i < 0 {
+			t.Errorf("heading %q out of order or missing:\n%s", w, msgs.User)
+			continue
+		}
+		pos += i + len(w)
+	}
+}
+
+func TestExecutiveSummaryMessages_EmptyAnalyses(t *testing.T) {
+	pl, m := fixedRandLoader(t, &config.Config{})
+	m.kind = "analyses"
+	msgs, err := pl.ExecutiveSummaryMessages(nil, severity.OK)
+	if err != nil {
+		t.Fatalf("ExecutiveSummaryMessages() error = %v", err)
+	}
+	if !strings.Contains(msgs.User, "Overall severity (computed by DLIA): ok") {
+		t.Errorf("overall line missing for empty analyses:\n%s", msgs.User)
+	}
+	if !strings.Contains(msgs.User, m.open()) {
+		t.Errorf("marker missing:\n%s", msgs.User)
+	}
+}
+
 func TestMessages_SystemAndUserShareMarker(t *testing.T) {
 	pl := NewPromptLoader(&config.Config{})
 
@@ -175,7 +230,7 @@ func TestMessages_SystemAndUserShareMarker(t *testing.T) {
 			return pl.SynthesisMessages("c", "", []string{"x"})
 		}},
 		"exec": {"analyses", func() (Messages, error) {
-			return pl.ExecutiveSummaryMessages(map[string]string{"c": "x"})
+			return pl.ExecutiveSummaryMessages([]ContainerAnalysis{{Name: "c", Severity: severity.OK, Analysis: "x"}}, severity.OK)
 		}},
 	}
 
@@ -277,7 +332,7 @@ func TestMessages_RandFailure(t *testing.T) {
 	if _, err := pl.SynthesisMessages("c", "", []string{"x"}); err == nil {
 		t.Error("SynthesisMessages() expected error")
 	}
-	if _, err := pl.ExecutiveSummaryMessages(map[string]string{"c": "x"}); err == nil {
+	if _, err := pl.ExecutiveSummaryMessages([]ContainerAnalysis{{Name: "c", Severity: severity.OK, Analysis: "x"}}, severity.OK); err == nil {
 		t.Error("ExecutiveSummaryMessages() expected error")
 	}
 }
@@ -300,7 +355,7 @@ func TestMessages_TemplateError(t *testing.T) {
 	if _, err := pl.SynthesisMessages("c", "", []string{"x"}); err == nil {
 		t.Error("SynthesisMessages() expected template error")
 	}
-	if _, err := pl.ExecutiveSummaryMessages(map[string]string{"c": "x"}); err == nil {
+	if _, err := pl.ExecutiveSummaryMessages([]ContainerAnalysis{{Name: "c", Severity: severity.OK, Analysis: "x"}}, severity.OK); err == nil {
 		t.Error("ExecutiveSummaryMessages() expected template error")
 	}
 }
@@ -316,7 +371,7 @@ func TestMessages_PromptSourcesTracked(t *testing.T) {
 	if _, err := pl.SynthesisMessages("c", "", []string{"x"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pl.ExecutiveSummaryMessages(map[string]string{"c": "x"}); err != nil {
+	if _, err := pl.ExecutiveSummaryMessages([]ContainerAnalysis{{Name: "c", Severity: severity.OK, Analysis: "x"}}, severity.OK); err != nil {
 		t.Fatal(err)
 	}
 

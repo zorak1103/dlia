@@ -465,6 +465,25 @@ func TestExecute_Exists(t *testing.T) {
 	t.Log("Execute function is defined and available")
 }
 
+func TestExitCodeFor(t *testing.T) {
+	base := errors.New("boom")
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"plain error", base, 1},
+		{"wrapped plain error", fmt.Errorf("context: %w", base), 1},
+		{"config error", &exitError{code: 2, err: base}, 2},
+		{"wrapped config error", fmt.Errorf("outer: %w", &exitError{code: 2, err: base}), 2},
+	}
+	for _, tc := range cases {
+		if got := exitCodeFor(tc.err); got != tc.want {
+			t.Errorf("%s: exitCodeFor(%v) = %d, want %d", tc.name, tc.err, got, tc.want)
+		}
+	}
+}
+
 func TestGetConfigLoadError(t *testing.T) {
 	original := errConfigLoad
 	defer func() { errConfigLoad = original }()

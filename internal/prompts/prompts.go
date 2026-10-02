@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"text/template"
@@ -177,11 +178,28 @@ func combineSummaries(summaries []string) string {
 	return sb.String()
 }
 
-// combineAnalyses joins per-container analyses under "### name" headings.
-func combineAnalyses(analyses map[string]string) string {
+// ContainerAnalysis is one successful per-container analysis for the executive summary.
+type ContainerAnalysis struct {
+	Name     string
+	Severity severity.Level
+	Analysis string
+}
+
+// combineAnalyses renders the overall severity line plus one entry per container,
+// sorted by severity descending (critical > unknown > warning > ok), then by name.
+func combineAnalyses(analyses []ContainerAnalysis, overall severity.Level) string {
 	var sb strings.Builder
-	for containerName, analysis := range analyses {
-		fmt.Fprintf(&sb, "### %s\n%s\n\n", containerName, analysis)
+	fmt.Fprintf(&sb, "Overall severity (computed by DLIA): %s\n", overall)
+	sorted := make([]ContainerAnalysis, len(analyses))
+	copy(sorted, analyses)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].Severity != sorted[j].Severity {
+			return sorted[i].Severity > sorted[j].Severity
+		}
+		return sorted[i].Name < sorted[j].Name
+	})
+	for _, a := range sorted {
+		fmt.Fprintf(&sb, "### %s (severity: %s)\n%s\n\n", a.Name, a.Severity, a.Analysis)
 	}
 	return sb.String()
 }
@@ -234,9 +252,9 @@ func (pl *PromptLoader) SynthesisMessages(containerName, ignoreInstructions stri
 }
 
 // ExecutiveSummaryMessages builds the system/user prompts for the cross-container summary.
-func (pl *PromptLoader) ExecutiveSummaryMessages(containerAnalyses map[string]string) (Messages, error) {
-	return pl.buildMessages(execSpec, "", combineAnalyses(containerAnalyses), func(wrapped string) (string, error) {
-		return pl.executiveSummaryPrompt(len(containerAnalyses), wrapped)
+func (pl *PromptLoader) ExecutiveSummaryMessages(analyses []ContainerAnalysis, overall severity.Level) (Messages, error) {
+	return pl.buildMessages(execSpec, "", combineAnalyses(analyses, overall), func(wrapped string) (string, error) {
+		return pl.executiveSummaryPrompt(len(analyses), wrapped)
 	})
 }
 

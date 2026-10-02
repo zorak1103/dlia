@@ -541,10 +541,19 @@ func handleExecutiveSummaryAndNotifications(ctx context.Context, outcomes map[st
 // buildExecSummary generates the executive summary from successful outcomes.
 // On error it prints a warning and returns an empty string.
 func buildExecSummary(ctx context.Context, outcomes map[string]knowledge.ServiceOutcome, cfg *config.Config, scanCfg *scanConfig) string {
-	analyses := make(map[string]string)
+	// Compute the overall level before the empty check: failed containers
+	// (nil Result) contribute unknown to the overall level even when no
+	// container succeeded; the early return only skips the LLM call.
+	overall := overallSeverity(outcomes)
+
+	analyses := make([]prompts.ContainerAnalysis, 0, len(outcomes))
 	for name, o := range outcomes {
 		if o.Result != nil {
-			analyses[name] = o.Result.Analysis
+			analyses = append(analyses, prompts.ContainerAnalysis{
+				Name:     name,
+				Severity: o.Result.Severity,
+				Analysis: o.Result.Analysis,
+			})
 		}
 	}
 	if len(analyses) == 0 {
@@ -561,7 +570,7 @@ func buildExecSummary(ctx context.Context, outcomes map[string]knowledge.Service
 		fmt.Println("📊 Generating executive summary...")
 	}
 
-	summary, err := generateExecutiveSummary(ctx, llmPipeline, analyses, cfg)
+	summary, err := generateExecutiveSummary(ctx, llmPipeline, analyses, overall, cfg)
 	if err != nil {
 		fmt.Printf("⚠️  Executive summary failed: %v\n", err)
 		return ""
@@ -621,10 +630,10 @@ func displayScanSummary(stats scanStats, scanCfg *scanConfig, lookbackDuration t
 	fmt.Println()
 }
 
-func generateExecutiveSummary(ctx context.Context, _ *chunking.Pipeline, containerAnalyses map[string]string, cfg *config.Config) (string, error) {
+func generateExecutiveSummary(ctx context.Context, _ *chunking.Pipeline, analyses []prompts.ContainerAnalysis, overall severity.Level, cfg *config.Config) (string, error) {
 	promptLoader := prompts.NewPromptLoader(cfg)
 
-	m, err := promptLoader.ExecutiveSummaryMessages(containerAnalyses)
+	m, err := promptLoader.ExecutiveSummaryMessages(analyses, overall)
 	if err != nil {
 		return "", fmt.Errorf("failed to load executive summary prompt: %w", err)
 	}

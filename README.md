@@ -397,6 +397,14 @@ The **overall severity** of a scan is the highest level across all containers. I
 
 The executive-summary LLM call is also skipped when the threshold is not reached. If the summary call fails, the notification is still sent without a summary. Invalid values are rejected at startup (exit code 2).
 
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General error (runtime failure, panic) |
+| 2 | Configuration error (invalid or missing config, missing directories) |
+
 Custom prompt templates need no change — the `SEVERITY:` instruction is appended automatically in code.
 
 ### Prompt Injection Protection

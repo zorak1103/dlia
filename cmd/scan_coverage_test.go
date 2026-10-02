@@ -14,6 +14,7 @@ import (
 	"github.com/zorak1103/dlia/internal/config"
 	"github.com/zorak1103/dlia/internal/docker"
 	"github.com/zorak1103/dlia/internal/knowledge"
+	"github.com/zorak1103/dlia/internal/prompts"
 	"github.com/zorak1103/dlia/internal/severity"
 	"github.com/zorak1103/dlia/internal/state"
 )
@@ -421,12 +422,12 @@ func TestGenerateExecutiveSummary_Error(t *testing.T) {
 		},
 	}
 
-	containerAnalyses := map[string]string{
-		"container1": "Test",
+	containerAnalyses := []prompts.ContainerAnalysis{
+		{Name: "container1", Severity: severity.OK, Analysis: "Test"},
 	}
 
 	// This will fail because the URL is invalid
-	_, err := generateExecutiveSummary(ctx, nil, containerAnalyses, cfg)
+	_, err := generateExecutiveSummary(ctx, nil, containerAnalyses, severity.OK, cfg)
 
 	// The function should return an error
 	if err == nil {

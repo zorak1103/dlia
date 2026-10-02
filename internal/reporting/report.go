@@ -26,6 +26,7 @@ func GenerateScanReport(containerName string, analysis *chunking.AnalyzeResult, 
 	fmt.Fprintf(&sb, "# Scan Report: %s\n\n", containerName)
 	fmt.Fprintf(&sb, "**Date:** %s  \n", timestamp)
 	fmt.Fprintf(&sb, "**Container:** `%s`  \n", containerName)
+	fmt.Fprintf(&sb, "**Severity:** %s  \n", analysis.Severity.Badge())
 	fmt.Fprintf(&sb, "**Log Entries:** %d  \n", analysis.OriginalCount)
 	fmt.Fprintf(&sb, "**Tokens Used:** %d\n\n", analysis.TokensUsed)
 

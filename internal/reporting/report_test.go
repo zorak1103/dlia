@@ -11,6 +11,7 @@ import (
 	"github.com/zorak1103/dlia/internal/config"
 	"github.com/zorak1103/dlia/internal/docker"
 	"github.com/zorak1103/dlia/internal/sanitize"
+	"github.com/zorak1103/dlia/internal/severity"
 )
 
 func TestGenerateScanReport(t *testing.T) {
@@ -549,4 +550,34 @@ func TestGenerateScanReport_CoverageSection(t *testing.T) {
 			t.Errorf("report should not contain coverage section:\n%s", report)
 		}
 	})
+}
+
+func TestGenerateScanReport_SeverityLine(t *testing.T) {
+	cases := []struct {
+		name  string
+		level severity.Level
+		badge string
+	}{
+		{"ok", severity.OK, "🟢 OK"},
+		{"warning", severity.Warning, "🟡 Warning"},
+		{"unknown", severity.Unknown, "🟡 Unknown"},
+		{"critical", severity.Critical, "🔴 Critical"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			analysis := &chunking.AnalyzeResult{Severity: tc.level}
+			report := GenerateScanReport("c", analysis, nil)
+			want := "**Severity:** " + tc.badge
+			if !strings.Contains(report, want) {
+				t.Errorf("report missing %q:\n%s", want, report)
+			}
+			containerIdx := strings.Index(report, "**Container:**")
+			sevIdx := strings.Index(report, "**Severity:**")
+			entriesIdx := strings.Index(report, "**Log Entries:**")
+			if containerIdx < 0 || sevIdx < 0 || entriesIdx < 0 ||
+				containerIdx >= sevIdx || sevIdx >= entriesIdx {
+				t.Errorf("severity line not between Container and Log Entries:\n%s", report)
+			}
+		})
+	}
 }

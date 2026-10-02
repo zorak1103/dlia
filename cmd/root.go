@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -72,10 +73,29 @@ It features:
 	},
 }
 
+// exitError carries a process exit code through RunE errors to Execute().
+type exitError struct {
+	code int
+	err  error
+}
+
+func (e *exitError) Error() string { return e.err.Error() }
+func (e *exitError) Unwrap() error { return e.err }
+
+// exitCodeFor maps an error returned by a RunE handler to the process exit code:
+// 2 for config errors (exitError), 1 for everything else.
+func exitCodeFor(err error) int {
+	var ee *exitError
+	if errors.As(err, &ee) {
+		return ee.code
+	}
+	return 1
+}
+
 // Execute adds all child commands to the root command and sets flags appropriately.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(exitCodeFor(err))
 	}
 }
 

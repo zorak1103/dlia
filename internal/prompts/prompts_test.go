@@ -8,9 +8,15 @@ import (
 	"testing"
 
 	"github.com/zorak1103/dlia/internal/config"
+	"github.com/zorak1103/dlia/internal/severity"
 )
 
 const unknownSource = "UNKNOWN"
+
+// computedSeveritySentence is the sentence the executive-summary prompt uses to
+// tell the LLM that the per-container and overall severities are computed by
+// DLIA and must be treated as authoritative.
+const computedSeveritySentence = "The severity levels shown with each container and the overall severity line are computed by DLIA — treat them as authoritative; do not reassess them."
 
 func TestNewPromptLoader(t *testing.T) {
 	cfg := &config.Config{}
@@ -262,37 +268,48 @@ func TestPromptLoader_SynthesisPrompt(t *testing.T) {
 
 func TestPromptLoader_ExecutiveSummaryPrompt(t *testing.T) {
 	tests := []struct {
-		name             string
-		containerResults map[string]string
-		wantContains     []string
+		name         string
+		analyses     []ContainerAnalysis
+		overall      severity.Level
+		wantContains []string
 	}{
 		{
 			name: "single container",
-			containerResults: map[string]string{
-				"container1": "Analysis for container 1",
+			analyses: []ContainerAnalysis{
+				{Name: "container1", Severity: severity.Warning, Analysis: "Analysis for container 1"},
 			},
+			overall: severity.Warning,
 			wantContains: []string{
 				"container1",
 				"Analysis for container 1",
+				"Overall severity (computed by DLIA): warning",
+				computedSeveritySentence,
 			},
 		},
 		{
 			name: "multiple containers",
-			containerResults: map[string]string{
-				"container1": "Analysis 1",
-				"container2": "Analysis 2",
+			analyses: []ContainerAnalysis{
+				{Name: "container1", Severity: severity.Warning, Analysis: "Analysis 1"},
+				{Name: "container2", Severity: severity.Critical, Analysis: "Analysis 2"},
 			},
+			overall: severity.Critical,
 			wantContains: []string{
 				"container1",
 				"Analysis 1",
 				"container2",
 				"Analysis 2",
+				"Overall severity (computed by DLIA): critical",
+				computedSeveritySentence,
 			},
 		},
 		{
-			name:             "no containers",
-			containerResults: map[string]string{},
-			wantContains:     []string{},
+			name:     "no containers",
+			analyses: nil,
+			overall:  severity.OK,
+			wantContains: []string{
+				"Overall severity (computed by DLIA): ok",
+				computedSeveritySentence,
+			},
 		},
 	}
 
@@ -301,7 +318,7 @@ func TestPromptLoader_ExecutiveSummaryPrompt(t *testing.T) {
 			cfg := &config.Config{}
 			loader := NewPromptLoader(cfg)
 
-			prompt, err := loader.executiveSummaryPrompt(len(tt.containerResults), combineAnalyses(tt.containerResults))
+			prompt, err := loader.executiveSummaryPrompt(len(tt.analyses), combineAnalyses(tt.analyses, tt.overall))
 			if err != nil {
 				t.Fatalf("ExecutiveSummaryPrompt() error = %v", err)
 			}
@@ -534,8 +551,8 @@ func TestPromptLoader_AllPromptsWithExternalFiles(t *testing.T) {
 	})
 
 	t.Run("executive summary prompt", func(t *testing.T) {
-		results := map[string]string{"c1": "a1"}
-		prompt, err := loader.executiveSummaryPrompt(len(results), combineAnalyses(results))
+		analyses := []ContainerAnalysis{{Name: "c1", Severity: severity.OK, Analysis: "a1"}}
+		prompt, err := loader.executiveSummaryPrompt(len(analyses), combineAnalyses(analyses, severity.OK))
 		if err != nil {
 			t.Fatalf("Error: %v", err)
 		}
@@ -667,7 +684,8 @@ func TestPromptLoader_ExecutiveSummaryTemplateErrors(t *testing.T) {
 		}
 		loader := NewPromptLoader(cfg)
 
-		_, err = loader.executiveSummaryPrompt(len(map[string]string{"c1": "a1"}), combineAnalyses(map[string]string{"c1": "a1"}))
+		analyses := []ContainerAnalysis{{Name: "c1", Severity: severity.OK, Analysis: "a1"}}
+		_, err = loader.executiveSummaryPrompt(len(analyses), combineAnalyses(analyses, severity.OK))
 		if err == nil {
 			t.Error("Expected error for invalid executive summary template")
 		}
@@ -692,7 +710,8 @@ func TestPromptLoader_ExecutiveSummaryTemplateErrors(t *testing.T) {
 		}
 		loader := NewPromptLoader(cfg)
 
-		_, err = loader.executiveSummaryPrompt(len(map[string]string{"c1": "a1"}), combineAnalyses(map[string]string{"c1": "a1"}))
+		analyses := []ContainerAnalysis{{Name: "c1", Severity: severity.OK, Analysis: "a1"}}
+		_, err = loader.executiveSummaryPrompt(len(analyses), combineAnalyses(analyses, severity.OK))
 		if err == nil {
 			t.Error("Expected error for executive summary template execution failure")
 		}

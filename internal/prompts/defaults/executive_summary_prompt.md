@@ -4,6 +4,8 @@ Analyzed {{.ContainerCount}} container(s):
 
 {{.ContainerAnalyses}}
 
+The severity levels shown with each container and the overall severity line are computed by DLIA — treat them as authoritative; do not reassess them.
+
 Create a brief executive summary (max 250 words) for notification delivery:
 
 1. **Overall Status**: One-line health assessment
