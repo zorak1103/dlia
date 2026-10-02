@@ -565,7 +565,7 @@ func TestGenerateScanReport_SeverityLine(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			analysis := &chunking.AnalyzeResult{Severity: tc.level} // + minimal fields the formatter needs
+			analysis := &chunking.AnalyzeResult{Severity: tc.level}
 			report := GenerateScanReport("c", analysis, nil)
 			want := "**Severity:** " + tc.badge
 			if !strings.Contains(report, want) {
@@ -575,7 +575,7 @@ func TestGenerateScanReport_SeverityLine(t *testing.T) {
 			sevIdx := strings.Index(report, "**Severity:**")
 			entriesIdx := strings.Index(report, "**Log Entries:**")
 			if containerIdx < 0 || sevIdx < 0 || entriesIdx < 0 ||
-				!(containerIdx < sevIdx && sevIdx < entriesIdx) {
+				containerIdx >= sevIdx || sevIdx >= entriesIdx {
 				t.Errorf("severity line not between Container and Log Entries:\n%s", report)
 			}
 		})
