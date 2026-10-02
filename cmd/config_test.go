@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -694,4 +696,71 @@ func TestConfigCmd_OutputsKnowledgeRetentionDays(t *testing.T) {
 	assert.Regexp(t, `Max Chunks:\s+7`, output)
 	assert.Regexp(t, `Max Window:\s+36h0m0s`, output)
 	assert.NotContains(t, output, "Max Tokens")
+}
+
+func captureConfigOutput(t *testing.T, testCfg *config.Config) string {
+	t.Helper()
+
+	originalCfg := cfg
+	cfg = testCfg
+	defer func() { cfg = originalCfg }()
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	require.NoError(t, configCmd.RunE(configCmd, []string{}))
+	require.NoError(t, w.Close())
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	return buf.String()
+}
+
+func TestConfigCmd_ShowsAnswerLimitsAndExtraBodyKeysOnly(t *testing.T) {
+	testCfg := &config.Config{
+		LLM: config.LLMConfig{
+			MaxAnswerTokens:       4000,
+			MaxChunkSummaryTokens: 2000,
+			ExtraBody: map[string]any{
+				"reasoning": map[string]any{"effort": "low"},
+				"provider":  map[string]any{"zdr": true},
+			},
+		},
+	}
+
+	output := captureConfigOutput(t, testCfg)
+
+	assert.Regexp(t, `Max Answer Tokens:\s+4000`, output)
+	assert.Regexp(t, `Max Chunk Summary:\s+2000`, output)
+	assert.Regexp(t, `Extra Body Keys:\s+provider, reasoning`, output)
+	assert.NotContains(t, output, "zdr")
+	assert.NotContains(t, output, "effort")
+}
+
+func TestConfigCmd_LLMValuesAligned(t *testing.T) {
+	output := captureConfigOutput(t, &config.Config{LLM: config.LLMConfig{BaseURL: "u", Model: "m", APIKey: "k"}})
+
+	cols := map[int]bool{}
+	for _, label := range []string{"Base URL:", "Model:", "Context Window:", "Max Chunks:", "Max Answer Tokens:", "Max Chunk Summary:", "Extra Body Keys:", "API Key:"} {
+		loc := regexp.MustCompile(regexp.QuoteMeta(label) + ` +`).FindStringIndex(output)
+		require.NotNil(t, loc, label)
+		lineStart := strings.LastIndex(output[:loc[0]], "\n") + 1
+		cols[loc[1]-lineStart] = true
+	}
+	assert.Len(t, cols, 1, "LLM values must start in one column")
+}
+
+func TestConfigCmd_EmptyExtraBodyShowsNone(t *testing.T) {
+	output := captureConfigOutput(t, &config.Config{})
+
+	assert.Contains(t, output, "Extra Body Keys:")
+	assert.Contains(t, output, "(none)")
+}
+
+func TestExtraBodyKeys(t *testing.T) {
+	assert.Equal(t, "(none)", extraBodyKeys(nil))
+	assert.Equal(t, "a, b, c", extraBodyKeys(map[string]any{"c": 1, "a": 2, "b": 3}))
 }

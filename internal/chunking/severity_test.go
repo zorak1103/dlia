@@ -101,10 +101,11 @@ func TestAnalyzeLogs_CustomTemplate_GetsInstruction(t *testing.T) {
 
 	tok := NewMockTokenizer(0.1)
 	p := &Pipeline{
-		tokenizer:    tok,
-		client:       client,
-		maxTokens:    1_000_000,
-		promptLoader: loader,
+		tokenizer:       tok,
+		client:          client,
+		maxTokens:       1_000_000,
+		responseReserve: DefaultResponseReserveTokens,
+		promptLoader:    loader,
 	}
 
 	res, err := p.AnalyzeLogs(context.Background(), "c", oneLogs())

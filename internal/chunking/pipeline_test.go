@@ -326,6 +326,7 @@ func TestPipeline_AnalyzeLogs(t *testing.T) {
 			pipeline := &Pipeline{
 				client:                     llmClient,
 				maxTokens:                  tt.maxTokens,
+				responseReserve:            DefaultResponseReserveTokens,
 				tokenizer:                  tokenizer,
 				compiledRegexpsByContainer: tt.regexpFilters,
 				promptLoader:               promptLoader,
@@ -473,10 +474,11 @@ func TestPipeline_AnalyzeDirectly(t *testing.T) {
 	promptLoader := prompts.NewPromptLoader(testCfg)
 
 	pipeline := &Pipeline{
-		client:       llmClient,
-		maxTokens:    8000,
-		tokenizer:    tokenizer,
-		promptLoader: promptLoader,
+		client:          llmClient,
+		maxTokens:       8000,
+		responseReserve: DefaultResponseReserveTokens,
+		tokenizer:       tokenizer,
+		promptLoader:    promptLoader,
 	}
 
 	logs := []docker.LogEntry{
@@ -551,10 +553,11 @@ func TestPipeline_AnalyzeWithChunking(t *testing.T) {
 			promptLoader := prompts.NewPromptLoader(testCfg)
 
 			pipeline := &Pipeline{
-				client:       llmClient,
-				maxTokens:    500,
-				tokenizer:    tokenizer,
-				promptLoader: promptLoader,
+				client:          llmClient,
+				maxTokens:       500,
+				responseReserve: DefaultResponseReserveTokens,
+				tokenizer:       tokenizer,
+				promptLoader:    promptLoader,
 			}
 
 			ctx := context.Background()
@@ -597,7 +600,7 @@ func TestMockLLMClient_ChatCompletion(t *testing.T) {
 }
 
 func TestPipeline_Constants(t *testing.T) {
-	assert.Equal(t, 4000, ResponseReserveTokens, "Expected ResponseReserveTokens to be 4000")
+	assert.Equal(t, 4000, DefaultResponseReserveTokens, "Expected DefaultResponseReserveTokens to be 4000")
 	assert.Equal(t, 500, SystemPromptReserveTokens, "Expected SystemPromptReserveTokens to be 500")
 	assert.Equal(t, 2, ChunkSizeDivisor, "Expected ChunkSizeDivisor to be 2")
 }
@@ -728,8 +731,12 @@ func TestNewPipeline_BudgetMarginForUnknownModel(t *testing.T) {
 }
 
 func TestMinContextWindowKeepsBudgetPositive(t *testing.T) {
-	budget := config.MinContextWindow*EstimateBudgetPercent/100 - ResponseReserveTokens - SystemPromptReserveTokens
-	assert.GreaterOrEqual(t, budget, 0)
+	assert.GreaterOrEqual(t, config.MinContextWindow*EstimateBudgetPercent/100-DefaultResponseReserveTokens-SystemPromptReserveTokens, 0)
+
+	for _, n := range []int{256, 4000, 6000, 32000} {
+		budget := config.MinContextWindowFor(n)*EstimateBudgetPercent/100 - n - SystemPromptReserveTokens
+		assert.GreaterOrEqual(t, budget, 0, "max_answer_tokens=%d", n)
+	}
 }
 
 func TestLimitChunks(t *testing.T) {

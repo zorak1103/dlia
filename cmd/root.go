@@ -35,7 +35,7 @@ that monitors Docker container logs and provides intelligent insights using LLMs
 It features:
   - Semantic log analysis using configurable LLM APIs
   - Historical context and trend detection
-  - Privacy-preserving log anonymization
+  - Privacy: best-effort masking of IPs and secrets
   - Flexible notification system via Shoutrrr
   - Markdown-based persistent knowledge base`,
 	Version: version.GetFullVersion(),
