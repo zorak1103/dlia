@@ -44,6 +44,9 @@ task deps:download
 # Install git hooks (run once after cloning)
 task install-hooks
 
+# Run the real-LLM eval suite (needs DLIA_LLM_API_KEY + DLIA_LLM_MODEL; not in CI)
+task eval
+
 # Run a single test (no task equivalent)
 go test -v -run TestFunctionName ./path/to/package
 ```
