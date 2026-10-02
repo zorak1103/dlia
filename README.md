@@ -187,7 +187,7 @@ scan:
   max_window: "24h"  # longest history read per container per scan (quoted Go duration)
 
 docker:
-  socket_path: "" # Auto-detects for Linux, macOS, and Windows; tcp://socket-proxy:2375 with the proxy
+  socket_path: "" # Auto-detects for Linux, macOS, and Windows; tcp://socket-proxy:2375 with the socket proxy in Docker Compose
   suppress_socket_warning: false  # silence the direct-socket startup warning
 
 notification:
@@ -235,7 +235,7 @@ DLIA_LLM_MAX_CHUNK_SUMMARY_TOKENS=2000
 DLIA_PRIVACY_ANONYMIZE_IPS=true
 DLIA_PRIVACY_ANONYMIZE_SECRETS=true
 DLIA_SCAN_MAX_WINDOW=24h
-DLIA_DOCKER_SOCKET_PATH=tcp://socket-proxy:2375
+DLIA_DOCKER_SOCKET_PATH=tcp://socket-proxy:2375  # hostname "socket-proxy" only resolves in the Docker Compose socket-proxy network (see "Docker socket access")
 DLIA_DOCKER_SUPPRESS_SOCKET_WARNING=false
 ```
 
@@ -683,6 +683,8 @@ docker run --rm \
   --group-add $(stat -c %g /var/run/docker.sock) \
   zorak1103/dlia:latest scan --dry-run
 ```
+
+All `stat -c %g` examples are GNU syntax. On macOS and Docker Desktop (BSD `stat`), use `stat -f %g` instead.
 
 In Docker Compose:
 
