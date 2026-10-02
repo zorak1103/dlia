@@ -29,7 +29,7 @@ llm:
   max_chunks_per_container: 10
 
   # Maximum tokens of the model's answer per analysis/synthesis call (at least 256)
-  # context_window must be at least (max_answer_tokens + 500) / 0.8
+  # context_window must be at least (max(max_answer_tokens, max_chunk_summary_tokens) + 500) / 0.8
   # Set via environment variable: DLIA_LLM_MAX_ANSWER_TOKENS
   max_answer_tokens: 4000
 

@@ -233,3 +233,20 @@ func TestConfigYAML_ContainsAnswerLimitsAndExtraBody(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigYAML_ContextWindowCommentNamesBothAnswerLimits(t *testing.T) {
+	content := string(ConfigYAML)
+
+	// The minimum context window follows the larger of both answer limits
+	// (see llm validation); the comment must not name only max_answer_tokens.
+	for _, line := range strings.Split(content, "\n") {
+		if !strings.Contains(line, "context_window must be at least") {
+			continue
+		}
+		if !strings.Contains(line, "max_answer_tokens") || !strings.Contains(line, "max_chunk_summary_tokens") {
+			t.Errorf("context_window comment %q must reference both max_answer_tokens and max_chunk_summary_tokens", line)
+		}
+		return
+	}
+	t.Error("Expected ConfigYAML to contain a 'context_window must be at least' comment")
+}
