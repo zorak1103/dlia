@@ -13,6 +13,7 @@ import (
 	"github.com/zorak1103/dlia/internal/knowledge"
 	"github.com/zorak1103/dlia/internal/notification"
 	"github.com/zorak1103/dlia/internal/prompts"
+	"github.com/zorak1103/dlia/internal/severity"
 	"github.com/zorak1103/dlia/internal/state"
 )
 
@@ -502,9 +503,14 @@ func sendNotificationIfNeeded(execSummary string, resultCount int, containerAnal
 		fmt.Println("📧 Sending notification...")
 	}
 
-	issuesFound := detectIssues(containerAnalyses)
+	// Temporary: pass severity.Warning when issues detected, severity.OK otherwise.
+	// Task 6 will replace this with the real per-container severity.
+	overallLevel := severity.OK
+	if detectIssues(containerAnalyses) {
+		overallLevel = severity.Warning
+	}
 
-	if err := notifier.SendScanSummary(execSummary, resultCount, issuesFound); err != nil {
+	if err := notifier.SendScanSummary(execSummary, resultCount, overallLevel, nil); err != nil {
 		return fmt.Errorf("notification failed: %w", err)
 	}
 
