@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -313,6 +314,8 @@ func TestValidate_ValidConfig(t *testing.T) {
 			Model:                 "test",
 			ContextWindow:         DefaultContextWindow,
 			MaxChunksPerContainer: 10,
+			MaxAnswerTokens:       DefaultMaxAnswerTokens,
+			MaxChunkSummaryTokens: DefaultMaxChunkSummaryTokens,
 		},
 		Docker: DockerConfig{SocketPath: "test"},
 		Output: OutputConfig{
@@ -452,7 +455,7 @@ func TestErr_ErrorVariable(t *testing.T) {
 func TestValidate_InvalidRegexpPattern(t *testing.T) {
 	cfg := &Config{
 		Scan:   ScanConfig{MaxWindow: 24 * time.Hour},
-		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10},
+		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10, MaxAnswerTokens: DefaultMaxAnswerTokens, MaxChunkSummaryTokens: DefaultMaxChunkSummaryTokens},
 		Docker: DockerConfig{SocketPath: "test"},
 		Output: OutputConfig{
 			ReportsDir:             "test",
@@ -477,7 +480,7 @@ func TestValidate_InvalidRegexpPattern(t *testing.T) {
 func TestValidate_DisabledRegexpFilter_NotValidated(t *testing.T) {
 	cfg := &Config{
 		Scan:   ScanConfig{MaxWindow: 24 * time.Hour},
-		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10},
+		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10, MaxAnswerTokens: DefaultMaxAnswerTokens, MaxChunkSummaryTokens: DefaultMaxChunkSummaryTokens},
 		Docker: DockerConfig{SocketPath: "test"},
 		Output: OutputConfig{
 			ReportsDir:             "test",
@@ -606,7 +609,7 @@ func TestValidate_RetentionBoundaryValues(t *testing.T) {
 	base := func(retention int) *Config {
 		return &Config{
 			Scan:         ScanConfig{MaxWindow: 24 * time.Hour},
-			LLM:          LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10},
+			LLM:          LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10, MaxAnswerTokens: DefaultMaxAnswerTokens, MaxChunkSummaryTokens: DefaultMaxChunkSummaryTokens},
 			Docker:       DockerConfig{SocketPath: "test"},
 			Notification: NotificationConfig{MinSeverity: "warning"},
 			Output: OutputConfig{
@@ -829,7 +832,7 @@ func TestLoadFromViper_SmallAliasErrorMentionsMaxTokens(t *testing.T) {
 
 	_, err := LoadFromViper()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "llm.context_window (set via deprecated llm.max_tokens=4000) must be at least 5625, got 4000")
+	assert.Contains(t, err.Error(), "llm.context_window (set via deprecated llm.max_tokens=4000) must be at least 5625 for llm.max_answer_tokens=4000, got 4000")
 }
 
 func TestLoadFromViper_SmallContextWindowErrorHasNoAliasHint(t *testing.T) {
@@ -844,7 +847,7 @@ func TestLoadFromViper_SmallContextWindowErrorHasNoAliasHint(t *testing.T) {
 
 	_, err := LoadFromViper()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "llm.context_window must be at least 5625, got 4000")
+	assert.Contains(t, err.Error(), "llm.context_window must be at least 5625 for llm.max_answer_tokens=4000, got 4000")
 	assert.NotContains(t, err.Error(), "deprecated")
 }
 
@@ -864,6 +867,14 @@ func TestValidate_ReliabilityRanges(t *testing.T) {
 		{"max_window one nanosecond", func(c *Config) { c.Scan.MaxWindow = time.Nanosecond }, "scan.max_window"},
 		{"max_window just below one minute", func(c *Config) { c.Scan.MaxWindow = time.Minute - 1 }, "scan.max_window"},
 		{"max_window one minute", func(c *Config) { c.Scan.MaxWindow = time.Minute }, ""},
+		{"max_answer_tokens below minimum", func(c *Config) { c.LLM.MaxAnswerTokens = 255 }, "llm.max_answer_tokens must be at least 256"},
+		{"max_chunk_summary_tokens below minimum", func(c *Config) { c.LLM.MaxChunkSummaryTokens = 255 }, "llm.max_chunk_summary_tokens must be at least 256"},
+		{"max_answer_tokens at minimum", func(c *Config) {
+			c.LLM.MaxAnswerTokens = MinAnswerTokens
+			c.LLM.ContextWindow = MinContextWindowFor(MinAnswerTokens)
+		}, ""},
+		{"context_window below dynamic minimum", func(c *Config) { c.LLM.MaxAnswerTokens = 6000; c.LLM.ContextWindow = 8124 }, "at least 8125 for llm.max_answer_tokens=6000"},
+		{"context_window at dynamic minimum", func(c *Config) { c.LLM.MaxAnswerTokens = 6000; c.LLM.ContextWindow = 8125 }, ""},
 	}
 
 	for _, tt := range tests {
@@ -885,7 +896,7 @@ func TestValidate_ReliabilityRanges(t *testing.T) {
 func validReliabilityConfig() *Config {
 	return &Config{
 		Scan:         ScanConfig{MaxWindow: 24 * time.Hour},
-		LLM:          LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10},
+		LLM:          LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10, MaxAnswerTokens: DefaultMaxAnswerTokens, MaxChunkSummaryTokens: DefaultMaxChunkSummaryTokens},
 		Docker:       DockerConfig{SocketPath: "test"},
 		Notification: NotificationConfig{MinSeverity: "warning"},
 		Output: OutputConfig{
@@ -957,7 +968,7 @@ func TestNotificationConfig_Threshold_FallbackOnEmpty(t *testing.T) {
 func validMinSeverityConfig() *Config {
 	return &Config{
 		Scan:   ScanConfig{MaxWindow: 24 * time.Hour},
-		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10},
+		LLM:    LLMConfig{BaseURL: "https://test.com", APIKey: "test", Model: "test", ContextWindow: DefaultContextWindow, MaxChunksPerContainer: 10, MaxAnswerTokens: DefaultMaxAnswerTokens, MaxChunkSummaryTokens: DefaultMaxChunkSummaryTokens},
 		Docker: DockerConfig{SocketPath: "test"},
 		Output: OutputConfig{
 			ReportsDir:             "test",
@@ -967,4 +978,84 @@ func validMinSeverityConfig() *Config {
 		},
 		Notification: NotificationConfig{MinSeverity: "warning"},
 	}
+}
+
+func TestLoad_AnswerLimitDefaults(t *testing.T) {
+	t.Setenv("DLIA_LLM_API_KEY", "test-key")
+	t.Setenv("DLIA_LLM_MAX_ANSWER_TOKENS", "")
+	t.Setenv("DLIA_LLM_MAX_CHUNK_SUMMARY_TOKENS", "")
+
+	cfg, err := Load("")
+	require.NoError(t, err)
+	assert.Equal(t, 4000, cfg.LLM.MaxAnswerTokens)
+	assert.Equal(t, 2000, cfg.LLM.MaxChunkSummaryTokens)
+	assert.Empty(t, cfg.LLM.ExtraBody)
+}
+
+func TestLoad_AnswerLimitEnvOverrides(t *testing.T) {
+	t.Setenv("DLIA_LLM_API_KEY", "test-key")
+	t.Setenv("DLIA_LLM_MAX_ANSWER_TOKENS", "6000")
+	t.Setenv("DLIA_LLM_MAX_CHUNK_SUMMARY_TOKENS", "3000")
+
+	cfg, err := Load("")
+	require.NoError(t, err)
+	assert.Equal(t, 6000, cfg.LLM.MaxAnswerTokens)
+	assert.Equal(t, 3000, cfg.LLM.MaxChunkSummaryTokens)
+}
+
+func TestMinContextWindowFor(t *testing.T) {
+	assert.Equal(t, 5625, MinContextWindowFor(4000))
+	assert.Equal(t, 8125, MinContextWindowFor(6000))
+	assert.Equal(t, 945, MinContextWindowFor(256))
+	assert.Equal(t, MinContextWindow, MinContextWindowFor(DefaultMaxAnswerTokens))
+}
+
+func TestValidate_ExtraBodyReservedKeys(t *testing.T) {
+	for _, key := range []string{"model", "messages", "temperature", "max_tokens", "max_completion_tokens", "stream", "n"} {
+		t.Run(key, func(t *testing.T) {
+			cfg := validReliabilityConfig()
+			cfg.LLM.ExtraBody = map[string]any{key: 1}
+
+			err := cfg.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "llm.extra_body."+key+" is reserved")
+			if key == "max_tokens" {
+				assert.Contains(t, err.Error(), "llm.max_answer_tokens")
+			}
+		})
+	}
+
+	t.Run("mixed case", func(t *testing.T) {
+		cfg := validReliabilityConfig()
+		cfg.LLM.ExtraBody = map[string]any{"Stream": true}
+
+		err := cfg.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "llm.extra_body.Stream is reserved")
+	})
+
+	t.Run("allowed keys and empty map", func(t *testing.T) {
+		cfg := validReliabilityConfig()
+		cfg.LLM.ExtraBody = map[string]any{"provider": map[string]any{"zdr": true}}
+		assert.NoError(t, cfg.Validate())
+
+		cfg.LLM.ExtraBody = map[string]any{}
+		assert.NoError(t, cfg.Validate())
+	})
+}
+
+func TestLoad_ExtraBodyNestedMarshalsToJSON(t *testing.T) {
+	t.Setenv("DLIA_LLM_API_KEY", "test-key")
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	content := "llm:\n  extra_body:\n    provider: {data_collection: deny, zdr: true}\n    reasoning: {effort: low}\n"
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0600))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+
+	data, err := json.Marshal(cfg.LLM.ExtraBody)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"zdr":true`)
+	assert.Contains(t, string(data), `"effort":"low"`)
 }

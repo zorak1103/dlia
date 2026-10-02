@@ -28,6 +28,24 @@ llm:
   # The newest chunks win; the rest is noted in the report
   max_chunks_per_container: 10
 
+  # Maximum tokens of the model's answer per analysis/synthesis call (at least 256)
+  # context_window must be at least (max_answer_tokens + 500) / 0.8
+  # Set via environment variable: DLIA_LLM_MAX_ANSWER_TOKENS
+  max_answer_tokens: 4000
+
+  # Maximum tokens of the model's answer per chunk summary (at least 256)
+  # Set via environment variable: DLIA_LLM_MAX_CHUNK_SUMMARY_TOKENS
+  max_chunk_summary_tokens: 2000
+
+  # Provider-specific options, merged into every chat request (config file only)
+  # Not allowed: model, messages, temperature, max_tokens, max_completion_tokens, stream, n
+  # extra_body:            # merged into every chat request (config file only)
+  #   provider:            # OpenRouter: no data collection, zero data retention
+  #     data_collection: deny
+  #     zdr: true
+  #   reasoning:
+  #     effort: low        # fewer reasoning tokens; "none" is rejected by some models
+
 # Scan Configuration
 scan:
   # Longest history read per container per scan

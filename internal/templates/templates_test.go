@@ -193,3 +193,13 @@ func TestEnvFile_IsByteSlice(_ *testing.T) {
 	// Verify EnvFile is a byte slice
 	_ = EnvFile[0] // Should not panic if it's a valid byte slice with content
 }
+
+func TestConfigYAML_ContainsAnswerLimitsAndExtraBody(t *testing.T) {
+	content := string(ConfigYAML)
+
+	for _, want := range []string{"max_answer_tokens:", "max_chunk_summary_tokens:", "# extra_body:"} {
+		if !strings.Contains(content, want) {
+			t.Errorf("Expected ConfigYAML to contain %q", want)
+		}
+	}
+}
