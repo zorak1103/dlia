@@ -3,8 +3,10 @@ package prompts
 
 import (
 	"bytes"
+	"crypto/rand"
 	"embed"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"text/template"
 
 	"github.com/zorak1103/dlia/internal/config"
+	"github.com/zorak1103/dlia/internal/severity"
 )
 
 //go:embed defaults/*.md
@@ -22,6 +25,7 @@ type PromptLoader struct {
 	cfg           *config.Config
 	mu            sync.RWMutex      // protects promptSources map
 	promptSources map[string]string // tracks source of each prompt (for introspection)
+	rand          io.Reader         // source of boundary marker randomness
 }
 
 // NewPromptLoader initializes prompt loading with external file overrides from config.
@@ -30,6 +34,7 @@ func NewPromptLoader(cfg *config.Config) *PromptLoader {
 		cfg: cfg,
 		// Typical: 5 prompt types (system, analysis, chunk_summary, synthesis, executive_summary)
 		promptSources: make(map[string]string, 5),
+		rand:          rand.Reader,
 	}
 }
 
@@ -85,6 +90,27 @@ func (pl *PromptLoader) GetAllPromptSources() map[string]string {
 	return sources
 }
 
+// Messages is a ready-to-send system/user prompt pair for one LLM call.
+type Messages struct {
+	System string
+	User   string
+}
+
+// callSpec describes how the untrusted data of one kind of LLM call is fenced.
+type callSpec struct {
+	kind         string // marker kind: logs, summaries or analyses
+	subject      string // what the enclosed data is called in the data rule
+	source       string // where the enclosed data comes from, for the data rule
+	withSeverity bool   // analysis/synthesis only: severity clause and instruction
+}
+
+var (
+	analysisSpec  = callSpec{"logs", "log data", "the monitored container", true}
+	chunkSpec     = callSpec{"logs", "log data", "the monitored container", false}
+	synthesisSpec = callSpec{"summaries", "chunk summaries", "summaries of the monitored container's logs", true}
+	execSpec      = callSpec{"analyses", "per-container analyses", "analyses of the monitored containers' logs", false}
+)
+
 // SystemPrompt returns the base system prompt, optionally extended with ignore instructions.
 func (pl *PromptLoader) SystemPrompt(ignoreInstructions string) (string, error) {
 	basePrompt, err := pl.loadPrompt(
@@ -103,135 +129,140 @@ func (pl *PromptLoader) SystemPrompt(ignoreInstructions string) (string, error) 
 	return basePrompt, nil
 }
 
-// AnalysisPrompt renders the log analysis template with container context.
-func (pl *PromptLoader) AnalysisPrompt(containerName, logs string, logCount int) (string, error) {
-	templateContent, err := pl.loadPrompt(
-		"analysis_prompt",
-		"defaults/analysis_prompt.md",
-		pl.cfg.Prompts.AnalysisPrompt,
-	)
+// renderTemplate loads the named prompt template (external override or embedded
+// default) and executes it with data. label names the template in error messages.
+func (pl *PromptLoader) renderTemplate(name, externalPath, label string, data map[string]interface{}) (string, error) {
+	templateContent, err := pl.loadPrompt(name, "defaults/"+name+".md", externalPath)
 	if err != nil {
 		return "", err
 	}
 
-	tmpl, err := template.New("analysis").Option("missingkey=error").Parse(templateContent)
+	tmpl, err := template.New(label).Option("missingkey=error").Parse(templateContent)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse analysis template: %w", err)
-	}
-
-	data := map[string]interface{}{
-		"ContainerName": containerName,
-		"Logs":          logs,
-		"LogCount":      logCount,
+		return "", fmt.Errorf("failed to parse %s template: %w", label, err)
 	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("failed to execute analysis template: %w", err)
+		return "", fmt.Errorf("failed to execute %s template: %w", label, err)
 	}
 
 	return buf.String(), nil
+}
+
+// combineSummaries joins chunk summaries with numbered separators.
+func combineSummaries(summaries []string) string {
+	var sb strings.Builder
+	for i, summary := range summaries {
+		fmt.Fprintf(&sb, "\n--- Chunk %d Summary ---\n%s\n", i+1, summary)
+	}
+	return sb.String()
+}
+
+// combineAnalyses joins per-container analyses under "### name" headings.
+func combineAnalyses(analyses map[string]string) string {
+	var sb strings.Builder
+	for containerName, analysis := range analyses {
+		fmt.Fprintf(&sb, "### %s\n%s\n\n", containerName, analysis)
+	}
+	return sb.String()
+}
+
+// buildMessages fences data with a fresh per-call marker, renders the user prompt
+// via render (which receives the wrapped data) and builds the matching system
+// prompt: base prompt, optional ignore instructions, then the data rule.
+func (pl *PromptLoader) buildMessages(spec callSpec, ignoreInstructions, data string, render func(wrapped string) (string, error)) (Messages, error) {
+	m, err := newMarker(spec.kind, data, pl.rand)
+	if err != nil {
+		return Messages{}, err
+	}
+
+	user, err := render(m.wrap(data))
+	if err != nil {
+		return Messages{}, err
+	}
+	if spec.withSeverity {
+		user += "\n\n" + severity.Instruction
+	}
+
+	system, err := pl.SystemPrompt(ignoreInstructions)
+	if err != nil {
+		return Messages{}, err
+	}
+	system += "\n\n" + dataRule(m, spec.subject, spec.source, spec.withSeverity)
+
+	return Messages{System: system, User: user}, nil
+}
+
+// AnalysisMessages builds the system/user prompts for analyzing logs in one call.
+func (pl *PromptLoader) AnalysisMessages(containerName, ignoreInstructions, logs string, logCount int) (Messages, error) {
+	return pl.buildMessages(analysisSpec, ignoreInstructions, logs, func(wrapped string) (string, error) {
+		return pl.AnalysisPrompt(containerName, wrapped, logCount)
+	})
+}
+
+// ChunkMessages builds the system/user prompts for summarizing a single log chunk.
+func (pl *PromptLoader) ChunkMessages(containerName, ignoreInstructions string, chunkNum, totalChunks int, logs string) (Messages, error) {
+	return pl.buildMessages(chunkSpec, ignoreInstructions, logs, func(wrapped string) (string, error) {
+		return pl.ChunkSummaryPrompt(containerName, chunkNum, totalChunks, wrapped)
+	})
+}
+
+// SynthesisMessages builds the system/user prompts for combining chunk summaries.
+func (pl *PromptLoader) SynthesisMessages(containerName, ignoreInstructions string, summaries []string) (Messages, error) {
+	return pl.buildMessages(synthesisSpec, ignoreInstructions, combineSummaries(summaries), func(wrapped string) (string, error) {
+		return pl.synthesisPrompt(containerName, wrapped)
+	})
+}
+
+// ExecutiveSummaryMessages builds the system/user prompts for the cross-container summary.
+func (pl *PromptLoader) ExecutiveSummaryMessages(containerAnalyses map[string]string) (Messages, error) {
+	return pl.buildMessages(execSpec, "", combineAnalyses(containerAnalyses), func(wrapped string) (string, error) {
+		return pl.executiveSummaryPrompt(len(containerAnalyses), wrapped)
+	})
+}
+
+// AnalysisPrompt renders the log analysis template with container context.
+func (pl *PromptLoader) AnalysisPrompt(containerName, logs string, logCount int) (string, error) {
+	return pl.renderTemplate("analysis_prompt", pl.cfg.Prompts.AnalysisPrompt, "analysis", map[string]interface{}{
+		"ContainerName": containerName,
+		"Logs":          logs,
+		"LogCount":      logCount,
+	})
 }
 
 // ChunkSummaryPrompt renders the template for summarizing a single log chunk.
 func (pl *PromptLoader) ChunkSummaryPrompt(containerName string, chunkNum, totalChunks int, logs string) (string, error) {
-	templateContent, err := pl.loadPrompt(
-		"chunk_summary_prompt",
-		"defaults/chunk_summary_prompt.md",
-		pl.cfg.Prompts.ChunkSummaryPrompt,
-	)
-	if err != nil {
-		return "", err
-	}
-
-	tmpl, err := template.New("chunk_summary").Option("missingkey=error").Parse(templateContent)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse chunk summary template: %w", err)
-	}
-
-	data := map[string]interface{}{
+	return pl.renderTemplate("chunk_summary_prompt", pl.cfg.Prompts.ChunkSummaryPrompt, "chunk summary", map[string]interface{}{
 		"ContainerName": containerName,
 		"ChunkNum":      chunkNum,
 		"TotalChunks":   totalChunks,
 		"Logs":          logs,
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("failed to execute chunk summary template: %w", err)
-	}
-
-	return buf.String(), nil
+	})
 }
 
 // SynthesisPrompt renders the template for combining multiple chunk summaries.
 func (pl *PromptLoader) SynthesisPrompt(containerName string, summaries []string) (string, error) {
-	templateContent, err := pl.loadPrompt(
-		"synthesis_prompt",
-		"defaults/synthesis_prompt.md",
-		pl.cfg.Prompts.SynthesisPrompt,
-	)
-	if err != nil {
-		return "", err
-	}
+	return pl.synthesisPrompt(containerName, combineSummaries(summaries))
+}
 
-	// Build summaries section
-	combined := ""
-	for i, summary := range summaries {
-		combined += fmt.Sprintf("\n--- Chunk %d Summary ---\n%s\n", i+1, summary)
-	}
-
-	tmpl, err := template.New("synthesis").Option("missingkey=error").Parse(templateContent)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse synthesis template: %w", err)
-	}
-
-	data := map[string]interface{}{
+func (pl *PromptLoader) synthesisPrompt(containerName, combinedSummaries string) (string, error) {
+	return pl.renderTemplate("synthesis_prompt", pl.cfg.Prompts.SynthesisPrompt, "synthesis", map[string]interface{}{
 		"ContainerName": containerName,
-		"Summaries":     combined,
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("failed to execute synthesis template: %w", err)
-	}
-
-	return buf.String(), nil
+		"Summaries":     combinedSummaries,
+	})
 }
 
 // ExecutiveSummaryPrompt renders the template for cross-container summary generation.
 func (pl *PromptLoader) ExecutiveSummaryPrompt(containerResults map[string]string) (string, error) {
-	templateContent, err := pl.loadPrompt(
-		"executive_summary_prompt",
-		"defaults/executive_summary_prompt.md",
-		pl.cfg.Prompts.ExecutiveSummaryPrompt,
-	)
-	if err != nil {
-		return "", err
-	}
+	return pl.executiveSummaryPrompt(len(containerResults), combineAnalyses(containerResults))
+}
 
-	// Build container analyzes section
-	var sb strings.Builder
-	for containerName, analysis := range containerResults {
-		fmt.Fprintf(&sb, "### %s\n%s\n\n", containerName, analysis)
-	}
-
-	tmpl, err := template.New("executive_summary").Option("missingkey=error").Parse(templateContent)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse executive summary template: %w", err)
-	}
-
-	data := map[string]interface{}{
-		"ContainerCount":    len(containerResults),
-		"ContainerAnalyses": sb.String(),
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("failed to execute executive summary template: %w", err)
-	}
-
-	return buf.String(), nil
+func (pl *PromptLoader) executiveSummaryPrompt(containerCount int, combinedAnalyses string) (string, error) {
+	return pl.renderTemplate("executive_summary_prompt", pl.cfg.Prompts.ExecutiveSummaryPrompt, "executive summary", map[string]interface{}{
+		"ContainerCount":    containerCount,
+		"ContainerAnalyses": combinedAnalyses,
+	})
 }
 
 // defaultLoader is a process-wide PromptLoader used by GetDefaultLoader for
