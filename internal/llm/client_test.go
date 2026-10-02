@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -553,21 +554,33 @@ func TestClient_RequestSerialization(t *testing.T) {
 }
 
 // captureStdout redirects os.Stdout into a buffer; the returned func drains it.
+// Draining is idempotent; cleanup restores stdout and closes the pipe even if
+// the test fails before draining.
 func captureStdout(t *testing.T) func() string {
 	t.Helper()
+	orig := os.Stdout
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("os.Pipe: %v", err)
 	}
-	orig := os.Stdout
 	os.Stdout = w
-	return func() string {
+	t.Cleanup(func() {
 		os.Stdout = orig
-		w.Close() // nolint:errcheck
-		buf := &strings.Builder{}
-		_, _ = io.Copy(buf, r)
-		r.Close() // nolint:errcheck
-		return buf.String()
+		_ = w.Close() // nolint:errcheck // double close is fine
+		_ = r.Close() // nolint:errcheck // already closed after draining
+	})
+	var (
+		once    sync.Once
+		drained string
+	)
+	return func() string {
+		once.Do(func() {
+			_ = w.Close() // nolint:errcheck
+			buf := &strings.Builder{}
+			_, _ = io.Copy(buf, r)
+			drained = buf.String()
+		})
+		return drained
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -12,6 +13,11 @@ import (
 type errReader struct{ err error }
 
 func (e errReader) Read([]byte) (int, error) { return 0, e.err }
+
+// readFunc adapts a func to io.Reader.
+type readFunc func(p []byte) (int, error)
+
+func (f readFunc) Read(p []byte) (int, error) { return f(p) }
 
 func TestNewMarker_Format(t *testing.T) {
 	m, err := newMarker("logs", "", bytes.NewReader(bytes.Repeat([]byte{0xab}, 16)))
@@ -76,11 +82,27 @@ func TestNewMarker_RedrawsOnCollision(t *testing.T) {
 }
 
 func TestNewMarker_ErrorAfterMaxAttempts(t *testing.T) {
-	rnd := bytes.NewReader(bytes.Repeat([]byte{0x00}, 16*maxMarkerAttempts))
+	// countingReader counts how many markerRandomBytes-sized draws it served.
+	var draws int
+	rnd := readFunc(func(p []byte) (int, error) {
+		draws++
+		return copy(p, bytes.Repeat([]byte{0x00}, markerRandomBytes)), nil
+	})
 	data := strings.Repeat("00", 16)
 
-	if _, err := newMarker("logs", data, rnd); err == nil {
+	_, err := newMarker("logs", data, rnd)
+	if err == nil {
 		t.Fatal("expected error after max attempts, got nil")
+	}
+	if draws != maxMarkerAttempts {
+		t.Errorf("newMarker made %d draws, want exactly maxMarkerAttempts (%d)", draws, maxMarkerAttempts)
+	}
+	wantLimit := fmt.Sprintf("after %d attempts", maxMarkerAttempts)
+	if !strings.Contains(err.Error(), wantLimit) {
+		t.Errorf("error %v must name the attempt limit %q", err, wantLimit)
+	}
+	if strings.Contains(err.Error(), "failed to read random bytes") {
+		t.Errorf("error %v must be the collision limit, not a read error", err)
 	}
 }
 
