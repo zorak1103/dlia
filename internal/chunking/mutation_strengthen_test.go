@@ -64,10 +64,11 @@ func (c *recordingClient) SummarizeChunk(_ context.Context, _, systemPrompt, chu
 func newTestPipeline(t *testing.T, tok TokenizerInterface, client AnalysisClient, maxTokens int) *Pipeline {
 	t.Helper()
 	return &Pipeline{
-		tokenizer:    tok,
-		client:       client,
-		maxTokens:    maxTokens,
-		promptLoader: prompts.NewPromptLoader(&config.Config{}),
+		tokenizer:       tok,
+		client:          client,
+		maxTokens:       maxTokens,
+		responseReserve: DefaultResponseReserveTokens,
+		promptLoader:    prompts.NewPromptLoader(&config.Config{}),
 	}
 }
 
@@ -253,7 +254,7 @@ func TestPipeline_DirectPathWhenBudgetAllows(t *testing.T) {
 		tok.CountTokens(base.User) +
 		tok.CountTokens(FormatLogs(logs))
 
-	p := newTestPipeline(t, tok, client, total+ResponseReserveTokens)
+	p := newTestPipeline(t, tok, client, total+DefaultResponseReserveTokens)
 	res, err := p.AnalyzeLogs(context.Background(), "c", logs)
 	require.NoError(t, err)
 
@@ -277,12 +278,13 @@ func newForcedChunkedPipeline(t *testing.T, tok TokenizerInterface, client Analy
 	base, err := loader.AnalysisMessages("c", "", "", 3)
 	require.NoError(t, err)
 	sysTok := tok.EstimateSystemPromptTokens(base.System)
-	maxTokens := ResponseReserveTokens + sysTok + 140
+	maxTokens := DefaultResponseReserveTokens + sysTok + 140
 	p := &Pipeline{
-		tokenizer:    tok,
-		client:       client,
-		maxTokens:    maxTokens,
-		promptLoader: loader,
+		tokenizer:       tok,
+		client:          client,
+		maxTokens:       maxTokens,
+		responseReserve: DefaultResponseReserveTokens,
+		promptLoader:    loader,
 	}
 	return p, 70 // chunk budget used by the pipeline (availableTokens / ChunkSizeDivisor)
 }
@@ -433,7 +435,7 @@ func TestPipeline_NegativeBudgetStillChunksSingle(t *testing.T) {
 	// negative, yet ChunkLogs still emits one oversized chunk instead of
 	// refusing. Pinned as current behavior; fix separately if it matters.
 	huge := docker.LogEntry{Message: strings.Repeat("x", 10_000)}
-	p := newTestPipeline(t, tok, client, ResponseReserveTokens+1)
+	p := newTestPipeline(t, tok, client, DefaultResponseReserveTokens+1)
 
 	res, err := p.AnalyzeLogs(context.Background(), "c", []docker.LogEntry{huge})
 	require.NoError(t, err)

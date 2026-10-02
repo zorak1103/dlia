@@ -43,7 +43,7 @@ func markNoConfigFile(err error, configFileUsed string) error {
 const (
 	// DefaultContextWindow is the assumed model context window when none is configured.
 	DefaultContextWindow = 128000
-	// MinContextWindow is (ResponseReserveTokens + SystemPromptReserveTokens) / 0.8 — keeps the budget positive with the 80% estimate margin.
+	// MinContextWindow is (chunking.DefaultResponseReserveTokens + chunking.SystemPromptReserveTokens) / 0.8 — keeps the budget positive with the 80% estimate margin.
 	MinContextWindow = 5625
 	// DefaultMaxAnswerTokens is the default max_tokens for analysis answers.
 	DefaultMaxAnswerTokens = 4000
