@@ -23,7 +23,7 @@
 - **Flexible LLM Backend** - Works with OpenAI, OpenRouter, Ollama, or any OpenAI-compatible API.
 - **Markdown Reports** - Human-readable persistent knowledge base.
 - **Universal Notifications** - Email, Discord, Slack, and more via Shoutrrr.
-- **Docker Native** - Direct Docker socket integration.
+- **Docker Native** - Reads logs via the Docker API (read-only socket proxy recommended).
 - **Single Binary** - No runtime dependencies except Docker.
 - **Multi-arch Docker Images** - Available for amd64 and arm64.
 
@@ -36,22 +36,15 @@
 
 ### Installation
 
-#### Option 1: Docker (Recommended)
+#### Option 1: Docker Compose (Recommended)
 
 ```bash
-# Run a one-time scan
-docker run --rm \
-  -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  -v ./dlia-data:/data \
-  -e DLIA_LLM_API_KEY=your-key-here \
-  -e DLIA_LLM_MODEL=gpt-4o-mini \
-  zorak1103/dlia:latest scan
-
-# Or use docker-compose
 curl -O https://raw.githubusercontent.com/zorak1103/dlia/main/docker-compose.yml
 export DLIA_LLM_API_KEY=your-key-here
 docker compose run --rm dlia scan
 ```
+
+The compose file runs DLIA together with a read-only socket proxy, so DLIA never gets the Docker socket itself (see [Docker socket access](#docker-socket-access)). To use plain `docker run` with a direct socket mount instead, see [Alternative: direct socket](#alternative-direct-socket).
 
 #### Option 2: Build from Source
 
@@ -191,7 +184,8 @@ scan:
   max_window: "24h"  # longest history read per container per scan (quoted Go duration)
 
 docker:
-  socket_path: "" # Auto-detects for Linux, macOS, and Windows
+  socket_path: "" # Auto-detects for Linux, macOS, and Windows; tcp://socket-proxy:2375 with the proxy
+  suppress_socket_warning: false  # silence the direct-socket startup warning
 
 notification:
   shoutrrr_url: ""  # smtp://, discord://, slack://, etc.
@@ -238,6 +232,8 @@ DLIA_LLM_MAX_CHUNK_SUMMARY_TOKENS=2000
 DLIA_PRIVACY_ANONYMIZE_IPS=true
 DLIA_PRIVACY_ANONYMIZE_SECRETS=true
 DLIA_SCAN_MAX_WINDOW=24h
+DLIA_DOCKER_SOCKET_PATH=tcp://socket-proxy:2375
+DLIA_DOCKER_SUPPRESS_SOCKET_WARNING=false
 ```
 
 ### Reliability Settings
@@ -541,12 +537,96 @@ output:
 - `zorak1103/dlia:vX.Y.Z-amd64` - Platform-specific
 - `zorak1103/dlia:vX.Y.Z-arm64` - Platform-specific
 
-### Running with Docker
+### Docker Compose
+
+```yaml
+services:
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:latest
+    environment:
+      - CONTAINERS=1   # list/inspect containers
+      - ALLOW_LOGS=1   # read container logs (denied by default)
+      - POST=0         # read-only API
+      - EVENTS=0       # not needed by DLIA
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs:
+      - /run
+    restart: unless-stopped
+    networks:
+      - socket-proxy
+
+  dlia:
+    image: zorak1103/dlia:latest
+    depends_on:
+      - socket-proxy
+    volumes:
+      - ./dlia-data:/data
+    environment:
+      - DLIA_DOCKER_SOCKET_PATH=tcp://socket-proxy:2375
+      - DLIA_LLM_API_KEY=${DLIA_LLM_API_KEY}
+      - DLIA_LLM_MODEL=${DLIA_LLM_MODEL:-gpt-4o-mini}
+    networks:
+      - socket-proxy
+      - default
+    command: scan
+
+networks:
+  socket-proxy:
+    internal: true
+```
+
+```bash
+# One-time scan
+docker compose run --rm dlia scan
+
+# With a custom config file (place it in ./dlia-data)
+docker compose run --rm dlia scan --config /data/config.yaml
+
+# Dry run (test without calling the LLM)
+docker compose run --rm dlia scan --dry-run
+
+# View help
+docker run --rm zorak1103/dlia:latest --help
+```
+
+### Docker socket access
+
+Access to the Docker socket is root-equivalent access to the host: anyone who can talk to it can start a privileged container. Mounting the socket with `:ro` does not change that, because `:ro` only stops the file itself from being replaced. It does not limit which API calls go through the socket.
+
+#### Recommended: socket proxy
+
+The shipped `docker-compose.yml` puts [linuxserver/socket-proxy](https://github.com/linuxserver/docker-socket-proxy) in front of the socket. Only the proxy mounts the socket. DLIA talks to the proxy over an internal network (`tcp://socket-proxy:2375`), and the proxy allows only the read-only calls DLIA needs:
+
+| Proxy variable | Value | Why |
+|---|---|---|
+| `CONTAINERS` | `1` | List containers |
+| `ALLOW_LOGS` | `1` | Read container logs. The proxy denies log reads unless this is set |
+| `POST` | `0` | Read-only API: no create, start, stop, exec or delete |
+| `EVENTS` | `0` | Not used by DLIA |
+
+`PING` and `VERSION` must stay at their default (`1`). DLIA uses them to connect and to negotiate the API version.
+
+If the proxy denies a request (HTTP 403), for example because `ALLOW_LOGS=1` is missing, DLIA's error says so:
+
+```
+failed to read logs for container abc123: ... (socket proxy denied the request: enable CONTAINERS=1 and ALLOW_LOGS=1, see README)
+```
+
+Never publish the proxy's port 2375. The `socket-proxy` network is `internal`, so only DLIA can reach it. DLIA also joins the `default` network to reach the LLM API and notification services.
+
+#### Alternative: direct socket
+
+You can mount the socket directly into DLIA. This gives DLIA root-equivalent access to the host. Use it only on machines where you accept that.
+
+The image runs as UID 1000, so it needs the socket's group to read it. Add the group with `--group-add` instead of running as root:
 
 ```bash
 # Basic scan
 docker run --rm \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  --group-add $(stat -c %g /var/run/docker.sock) \
   -v ./dlia-data:/data \
   -e DLIA_LLM_API_KEY=your-key-here \
   zorak1103/dlia:latest scan
@@ -554,6 +634,7 @@ docker run --rm \
 # With custom config file
 docker run --rm \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  --group-add $(stat -c %g /var/run/docker.sock) \
   -v ./dlia-data:/data \
   -v ./config.yaml:/data/config.yaml:ro \
   -e DLIA_LLM_API_KEY=your-key-here \
@@ -562,37 +643,46 @@ docker run --rm \
 # Dry run (test without calling LLM)
 docker run --rm \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  --group-add $(stat -c %g /var/run/docker.sock) \
   zorak1103/dlia:latest scan --dry-run
-
-# View help
-docker run --rm zorak1103/dlia:latest --help
 ```
 
-### Docker Compose
+In Docker Compose:
 
 ```yaml
 services:
   dlia:
     image: zorak1103/dlia:latest
+    group_add:
+      - "<docker-gid>"  # output of: stat -c %g /var/run/docker.sock
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./dlia-data:/data
     environment:
       - DLIA_LLM_API_KEY=${DLIA_LLM_API_KEY}
-      - DLIA_LLM_MODEL=${DLIA_LLM_MODEL:-gpt-4o-mini}
     command: scan
 ```
+
+Do not work around permission errors with `user: root`.
+
+With a `unix://` or `npipe://` socket (also when auto-detected), `dlia scan` and `dlia cleanup` print a warning to stderr at startup. To silence it, set `docker.suppress_socket_warning: true` in `config.yaml` or `DLIA_DOCKER_SUPPRESS_SOCKET_WARNING=true`.
 
 ### Scheduled Scans with Cron
 
 ```bash
-# Add to crontab for hourly scans
-0 * * * * docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro -v /opt/dlia:/data -e DLIA_LLM_API_KEY=xxx zorak1103/dlia:latest scan
+# Add to crontab for hourly scans (directory with docker-compose.yml)
+0 * * * * cd /opt/dlia && docker compose run --rm dlia scan
+```
+
+With a direct socket mount (see [Alternative: direct socket](#alternative-direct-socket)):
+
+```bash
+0 * * * * docker run --rm -v /var/run/docker.sock:/var/run/docker.sock:ro --group-add $(stat -c \%g /var/run/docker.sock) -v /opt/dlia:/data -e DLIA_LLM_API_KEY=xxx zorak1103/dlia:latest scan
 ```
 
 ### Security Notes
 
-- Mount Docker socket as read-only (`:ro`)
+- Access the Docker API through the read-only socket proxy; `:ro` on a socket mount does not limit what the API allows
 - Container runs as non-root user (UID 1000)
 - Minimal Alpine base image (~10MB)
 

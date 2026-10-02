@@ -10,7 +10,7 @@ RUN mkdir -p /data/reports /data/knowledge_base/services /data/logs/llm /data/co
     && chown -R dlia:dlia /data
 WORKDIR /data
 USER dlia
-VOLUME ["/data", "/var/run/docker.sock"]
+VOLUME ["/data"]
 ENV DLIA_OUTPUT_REPORTS_DIR=/data/reports \
     DLIA_OUTPUT_KNOWLEDGE_BASE_DIR=/data/knowledge_base \
     DLIA_OUTPUT_STATE_FILE=/data/state.json
