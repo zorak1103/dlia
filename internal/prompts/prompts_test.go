@@ -1,6 +1,7 @@
 package prompts
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -745,5 +746,46 @@ func BenchmarkPromptLoader_AnalysisPrompt(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = loader.analysisPrompt("test", "logs", 100)
+	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error: %v", err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = orig }()
+
+	fn()
+
+	_ = w.Close()
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("reading captured stdout: %v", err)
+	}
+	return string(out)
+}
+
+func TestPromptLoader_WarnsOncePerMissingPrompt(t *testing.T) {
+	cfg := &config.Config{
+		Prompts: config.PromptsConfig{
+			SystemPrompt: filepath.Join(t.TempDir(), "missing.md"),
+		},
+	}
+	loader := NewPromptLoader(cfg)
+
+	out := captureStdout(t, func() {
+		for i := 0; i < 3; i++ {
+			if _, err := loader.AnalysisMessages("c", "", "log line", 1); err != nil {
+				t.Errorf("AnalysisMessages() error: %v", err)
+			}
+		}
+	})
+
+	if got := strings.Count(out, "Warning: Could not read system_prompt"); got != 1 {
+		t.Errorf("warning printed %d times, want 1; output:\n%s", got, out)
 	}
 }

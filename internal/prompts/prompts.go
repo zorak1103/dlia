@@ -23,9 +23,10 @@ var embeddedPrompts embed.FS
 // PromptLoader manages loading prompts from files or embedded defaults
 type PromptLoader struct {
 	cfg           *config.Config
-	mu            sync.RWMutex      // protects promptSources map
+	mu            sync.RWMutex      // protects promptSources and warned maps
 	promptSources map[string]string // tracks source of each prompt (for introspection)
 	rand          io.Reader         // source of boundary marker randomness
+	warned        map[string]bool   // prompt names whose fallback warning was already printed
 }
 
 // NewPromptLoader initializes prompt loading with external file overrides from config.
@@ -35,6 +36,7 @@ func NewPromptLoader(cfg *config.Config) *PromptLoader {
 		// Typical: 5 prompt types (system, analysis, chunk_summary, synthesis, executive_summary)
 		promptSources: make(map[string]string, 5),
 		rand:          rand.Reader,
+		warned:        make(map[string]bool),
 	}
 }
 
@@ -51,9 +53,11 @@ func (pl *PromptLoader) loadPrompt(name, embeddedPath, externalPath string) (str
 			pl.mu.Unlock()
 			return string(content), nil
 		}
-		// Log warning but fall back to embedded
-		fmt.Printf("⚠️  Warning: Could not read %s from %s: %v\n", name, cleanPath, err)
-		fmt.Printf("   Falling back to built-in default\n")
+		// Warn once per prompt name (prompts are loaded on every LLM call), then fall back to embedded
+		if pl.markWarned(name) {
+			fmt.Printf("⚠️  Warning: Could not read %s from %s: %v\n", name, cleanPath, err)
+			fmt.Printf("   Falling back to built-in default\n")
+		}
 	}
 
 	// Use embedded default
@@ -66,6 +70,18 @@ func (pl *PromptLoader) loadPrompt(name, embeddedPath, externalPath string) (str
 	pl.promptSources[name] = "INTERNAL DEFAULT"
 	pl.mu.Unlock()
 	return string(content), nil
+}
+
+// markWarned records that the fallback warning for name was shown and reports
+// whether this was the first time.
+func (pl *PromptLoader) markWarned(name string) bool {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	if pl.warned[name] {
+		return false
+	}
+	pl.warned[name] = true
+	return true
 }
 
 // GetPromptSource returns the source of a prompt (for introspection)
