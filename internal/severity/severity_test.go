@@ -231,6 +231,67 @@ func TestParse(t *testing.T) {
 			wantLevel: severity.Unknown,
 			wantText:  "x\nSEVERITY: ok because logs are quiet",
 		},
+		// Empty code-fence pair directly around the severity line
+		{
+			name:      "bare pair removed",
+			input:     "```\nSEVERITY: ok\n```",
+			wantLevel: severity.OK,
+			wantText:  "",
+		},
+		{
+			name:      "language tag allowed",
+			input:     "```text\nSEVERITY: warning\n```",
+			wantLevel: severity.Warning,
+			wantText:  "",
+		},
+		{
+			name:      "real content between fences",
+			input:     "```\nSome analysis.\nSEVERITY: ok\n```",
+			wantLevel: severity.OK,
+			wantText:  "```\nSome analysis.\n```",
+		},
+		{
+			name:      "pair removed, text kept",
+			input:     "x\n```\nSEVERITY: ok\n```",
+			wantLevel: severity.OK,
+			wantText:  "x",
+		},
+		{
+			name:      "blank lines inside the pair",
+			input:     "```\n\nSEVERITY: ok\n\n```",
+			wantLevel: severity.OK,
+			wantText:  "",
+		},
+		{
+			name:      "pair not trailing, kept",
+			input:     "```\nSEVERITY: ok\n```\nmore",
+			wantLevel: severity.OK,
+			wantText:  "```\n```\nmore",
+		},
+		{
+			name:      "unclosed fence kept",
+			input:     "```\nSEVERITY: ok",
+			wantLevel: severity.OK,
+			wantText:  "```",
+		},
+		{
+			name:      "closing without opening kept",
+			input:     "SEVERITY: ok\n```",
+			wantLevel: severity.OK,
+			wantText:  "```",
+		},
+		{
+			name:      "only trailing pair removed",
+			input:     "```\ncode\n```\ntext\n```\nSEVERITY: ok\n```",
+			wantLevel: severity.OK,
+			wantText:  "```\ncode\n```\ntext",
+		},
+		{
+			name:      "CRLF fenced pair",
+			input:     "x\r\n```\r\nSEVERITY: ok\r\n```\r\n",
+			wantLevel: severity.OK,
+			wantText:  "x",
+		},
 	}
 
 	for _, tc := range tests {
