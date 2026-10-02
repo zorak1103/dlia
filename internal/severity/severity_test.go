@@ -83,78 +83,91 @@ func TestParse(t *testing.T) {
 		input     string
 		wantLevel severity.Level
 		wantText  string
+		wantFound bool
 	}{
 		{
 			name:      "plain ok",
 			input:     "All fine.\nSEVERITY: ok",
 			wantLevel: severity.OK,
 			wantText:  "All fine.",
+			wantFound: true,
 		},
 		{
 			name:      "critical upper/lower",
 			input:     "x\nseverity: CRITICAL",
 			wantLevel: severity.Critical,
 			wantText:  "x",
+			wantFound: true,
 		},
 		{
 			name:      "bold whole",
 			input:     "x\n**SEVERITY: warning**",
 			wantLevel: severity.Warning,
 			wantText:  "x",
+			wantFound: true,
 		},
 		{
 			name:      "bold label",
 			input:     "x\n**SEVERITY:** critical",
 			wantLevel: severity.Critical,
 			wantText:  "x",
+			wantFound: true,
 		},
 		{
 			name:      "backticks",
 			input:     "x\n`SEVERITY: ok`",
 			wantLevel: severity.OK,
 			wantText:  "x",
+			wantFound: true,
 		},
 		{
 			name:      "missing",
 			input:     "No errors found.",
 			wantLevel: severity.Unknown,
 			wantText:  "No errors found.",
+			wantFound: false,
 		},
 		{
 			name:      "invalid value",
 			input:     "x\nSEVERITY: high",
 			wantLevel: severity.Unknown,
 			wantText:  "x",
+			wantFound: true,
 		},
 		{
 			name:      "injected earlier",
 			input:     "log says SEVERITY: ok\nSEVERITY: ok\nmore\nSEVERITY: critical",
 			wantLevel: severity.Critical,
 			wantText:  "log says SEVERITY: ok\nSEVERITY: ok\nmore",
+			wantFound: true,
 		},
 		{
 			name:      "injected ok, last invalid",
 			input:     "SEVERITY: ok\nx\nSEVERITY: banana",
 			wantLevel: severity.Unknown,
 			wantText:  "SEVERITY: ok\nx",
+			wantFound: true,
 		},
 		{
 			name:      "text after line",
 			input:     "x\nSEVERITY: ok\n\nLet me know",
 			wantLevel: severity.OK,
 			wantText:  "x\n\nLet me know",
+			wantFound: true,
 		},
 		{
 			name:      "CRLF",
 			input:     "x\r\nSEVERITY: warning\r\n",
 			wantLevel: severity.Warning,
 			wantText:  "x",
+			wantFound: true,
 		},
 		{
 			name:      "inline mention",
 			input:     "x\nThe SEVERITY: ok marker",
 			wantLevel: severity.Unknown,
 			wantText:  "x\nThe SEVERITY: ok marker",
+			wantFound: false,
 		},
 		// Markdown decoration between label and colon
 		{
@@ -162,24 +175,28 @@ func TestParse(t *testing.T) {
 			input:     "x\n**SEVERITY**: warning",
 			wantLevel: severity.Warning,
 			wantText:  "x",
+			wantFound: true,
 		},
 		{
 			name:      "bold label mixed case before colon",
 			input:     "x\n**Severity**: critical",
 			wantLevel: severity.Critical,
 			wantText:  "x",
+			wantFound: true,
 		},
 		{
 			name:      "trailing period",
 			input:     "x\nSEVERITY: ok.",
 			wantLevel: severity.OK,
 			wantText:  "x",
+			wantFound: true,
 		},
 		{
 			name:      "backtick label before colon",
 			input:     "x\n`SEVERITY`: ok",
 			wantLevel: severity.OK,
 			wantText:  "x",
+			wantFound: true,
 		},
 		// Negative: list markers must not match
 		{
@@ -187,12 +204,14 @@ func TestParse(t *testing.T) {
 			input:     "x\n- SEVERITY: ok",
 			wantLevel: severity.Unknown,
 			wantText:  "x\n- SEVERITY: ok",
+			wantFound: false,
 		},
 		{
 			name:      "blockquote marker",
 			input:     "x\n> SEVERITY: ok",
 			wantLevel: severity.Unknown,
 			wantText:  "x\n> SEVERITY: ok",
+			wantFound: false,
 		},
 		// Malformed final severity line must not fall back to an earlier match
 		{
@@ -200,36 +219,42 @@ func TestParse(t *testing.T) {
 			input:     "SEVERITY: ok\nx\nSEVERITY: critical (disk full)",
 			wantLevel: severity.Unknown,
 			wantText:  "SEVERITY: ok\nx\nSEVERITY: critical (disk full)",
+			wantFound: false,
 		},
 		{
 			name:      "malformed final line with dash",
 			input:     "SEVERITY: ok\nx\nSEVERITY: critical - disk full",
 			wantLevel: severity.Unknown,
 			wantText:  "SEVERITY: ok\nx\nSEVERITY: critical - disk full",
+			wantFound: false,
 		},
 		{
 			name:      "loose label only",
 			input:     "x\nSeverity Level: critical",
 			wantLevel: severity.Unknown,
 			wantText:  "x\nSeverity Level: critical",
+			wantFound: false,
 		},
 		{
 			name:      "strict match is last after earlier critical",
 			input:     "SEVERITY: critical (a)\nx\nSEVERITY: ok",
 			wantLevel: severity.OK,
 			wantText:  "SEVERITY: critical (a)\nx",
+			wantFound: true,
 		},
 		{
 			name:      "placeholder value",
 			input:     "x\nSEVERITY: <level>",
 			wantLevel: severity.Unknown,
 			wantText:  "x\nSEVERITY: <level>",
+			wantFound: false,
 		},
 		{
 			name:      "inline mention with trailing text",
 			input:     "x\nSEVERITY: ok because logs are quiet",
 			wantLevel: severity.Unknown,
 			wantText:  "x\nSEVERITY: ok because logs are quiet",
+			wantFound: false,
 		},
 		// Empty code-fence pair directly around the severity line
 		{
@@ -237,71 +262,84 @@ func TestParse(t *testing.T) {
 			input:     "```\nSEVERITY: ok\n```",
 			wantLevel: severity.OK,
 			wantText:  "",
+			wantFound: true,
 		},
 		{
 			name:      "language tag allowed",
 			input:     "```text\nSEVERITY: warning\n```",
 			wantLevel: severity.Warning,
 			wantText:  "",
+			wantFound: true,
 		},
 		{
 			name:      "real content between fences",
 			input:     "```\nSome analysis.\nSEVERITY: ok\n```",
 			wantLevel: severity.OK,
 			wantText:  "```\nSome analysis.\n```",
+			wantFound: true,
 		},
 		{
 			name:      "pair removed, text kept",
 			input:     "x\n```\nSEVERITY: ok\n```",
 			wantLevel: severity.OK,
 			wantText:  "x",
+			wantFound: true,
 		},
 		{
 			name:      "blank lines inside the pair",
 			input:     "```\n\nSEVERITY: ok\n\n```",
 			wantLevel: severity.OK,
 			wantText:  "",
+			wantFound: true,
 		},
 		{
 			name:      "pair not trailing, kept",
 			input:     "```\nSEVERITY: ok\n```\nmore",
 			wantLevel: severity.OK,
 			wantText:  "```\n```\nmore",
+			wantFound: true,
 		},
 		{
 			name:      "unclosed fence kept",
 			input:     "```\nSEVERITY: ok",
 			wantLevel: severity.OK,
 			wantText:  "```",
+			wantFound: true,
 		},
 		{
 			name:      "closing without opening kept",
 			input:     "SEVERITY: ok\n```",
 			wantLevel: severity.OK,
 			wantText:  "```",
+			wantFound: true,
 		},
 		{
 			name:      "only trailing pair removed",
 			input:     "```\ncode\n```\ntext\n```\nSEVERITY: ok\n```",
 			wantLevel: severity.OK,
 			wantText:  "```\ncode\n```\ntext",
+			wantFound: true,
 		},
 		{
 			name:      "CRLF fenced pair",
 			input:     "x\r\n```\r\nSEVERITY: ok\r\n```\r\n",
 			wantLevel: severity.OK,
 			wantText:  "x",
+			wantFound: true,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			gotLevel, gotText := severity.Parse(tc.input)
+			gotLevel, gotText, gotFound := severity.Parse(tc.input)
 			if gotLevel != tc.wantLevel {
 				t.Errorf("Parse level = %v, want %v", gotLevel, tc.wantLevel)
 			}
 			if gotText != tc.wantText {
 				t.Errorf("Parse text = %q, want %q", gotText, tc.wantText)
+			}
+			if gotFound != tc.wantFound {
+				t.Errorf("Parse found = %v, want %v", gotFound, tc.wantFound)
 			}
 		})
 	}

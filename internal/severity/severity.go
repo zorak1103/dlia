@@ -125,7 +125,8 @@ func parseValue(raw string) (Level, bool) {
 	}
 }
 
-// Parse scans text for a SEVERITY line and returns the level and cleaned text.
+// Parse scans text for a SEVERITY line and returns the level, the cleaned
+// text, and whether a line was found and removed.
 //
 // Only the last matching line is removed. If no line matches, Unknown is returned
 // and the original text is returned unchanged. If the last match has an unrecognised
@@ -139,7 +140,12 @@ func parseValue(raw string) (Level, bool) {
 // trails the text (only blank lines inside the pair and after the closing fence),
 // the whole pair is removed as well. Fences with real content between them,
 // unclosed fences, and a closing fence without an opening one are left as-is.
-func Parse(text string) (level Level, cleaned string) {
+//
+// found is true exactly when the strict-match branch removed a line — including
+// an unrecognised value (e.g. "SEVERITY: banana") — and false otherwise. It is
+// deliberately not derived from the level, which is Unknown for removed but
+// unrecognised values.
+func Parse(text string) (level Level, cleaned string, found bool) {
 	lines := strings.Split(text, "\n")
 
 	lastMatchIdx := -1
@@ -161,7 +167,7 @@ func Parse(text string) (level Level, cleaned string) {
 
 	if lastMatchIdx == -1 || lastLooseIdx > lastMatchIdx {
 		// No well-formed final SEVERITY line; return original text unchanged.
-		return Unknown, text
+		return Unknown, text, false
 	}
 
 	level, _ = parseValue(lastRaw)
@@ -178,7 +184,7 @@ func Parse(text string) (level Level, cleaned string) {
 	kept = append(kept, lines[end+1:]...)
 	cleaned = strings.TrimRight(strings.Join(kept, "\n"), " \t\r\n")
 
-	return level, cleaned
+	return level, cleaned, true
 }
 
 // emptyFenceExtent reports the removal extent for an empty code fence directly
