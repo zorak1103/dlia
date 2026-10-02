@@ -342,6 +342,48 @@ func TestUpdateContainerState_NoLogs(t *testing.T) {
 	}
 }
 
+func TestUpdateContainerState_ZeroLatestTimeKeepsCursor(t *testing.T) {
+	t.Parallel()
+
+	scanCfg := newTestScanConfig()
+	scanCfg.verbose = false
+	scanCfg.dryRun = false
+
+	// Create a temporary state file
+	tmpDir := t.TempDir()
+	stateFile := tmpDir + "/state.json"
+
+	st, err := state.Load(stateFile)
+	if err != nil {
+		t.Fatalf("Failed to load state: %v", err)
+	}
+
+	container := docker.Container{
+		ID:   "test123",
+		Name: "test-container",
+	}
+
+	seeded := time.Date(2023, 1, 1, 9, 0, 0, 0, time.UTC)
+	st.UpdateContainer(container.ID, container.Name, seeded, "")
+
+	// A batch with no usable timestamp at all must not advance the cursor
+	// to the zero time (which would re-read the full history next scan).
+	logs := []docker.LogEntry{
+		{Timestamp: "not-a-timestamp", Stream: "stdout", Message: "bad"},
+		{Timestamp: "", Stream: "stdout", Message: "no timestamp"},
+	}
+
+	updateContainerState(st, container, logs, scanCfg, 0)
+
+	lastScan, exists := st.GetLastScan(container.ID)
+	if !exists {
+		t.Fatal("Expected container to still be in state")
+	}
+	if !lastScan.Equal(seeded) {
+		t.Errorf("Expected cursor to stay at %v, got %v", seeded, lastScan)
+	}
+}
+
 func TestUpdateContainerState_DryRun(t *testing.T) {
 	t.Parallel()
 

@@ -520,11 +520,14 @@ func TestRunScan_UnparseableLogTimestamps(t *testing.T) {
 
 	err := runScan(newScanRunCmd(), []string{})
 
-	// Unparseable timestamps must not abort the scan and must not touch state.
+	// Unparseable timestamps must not abort the scan and must not write a
+	// zero cursor for the container (verbose note confirms the cursor was kept).
 	require.NoError(t, err)
-	assert.Contains(t, read(), "Could not parse latest timestamp")
-	_, statErr := os.Stat(env.stateFile)
-	assert.True(t, os.IsNotExist(statErr), "state must not be created when no timestamp parsed")
+	assert.Contains(t, read(), "No parseable timestamp in new entries; cursor kept")
+	st, loadErr := state.Load(env.stateFile)
+	require.NoError(t, loadErr)
+	_, exists := st.GetLastScan(scanContainer().ID)
+	assert.False(t, exists, "container must not get a cursor when no timestamp parsed")
 }
 
 func TestRunScan_ReportSaveFails(t *testing.T) {

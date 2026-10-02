@@ -446,6 +446,14 @@ func updateContainerState(st *state.State, container docker.Container, logs []do
 		}
 		return
 	}
+	if latestTime.IsZero() {
+		// Safety net: no entry had a usable timestamp. Advancing the cursor
+		// to the zero time would re-read the full history on the next scan.
+		if scanCfg.verbose {
+			fmt.Printf("        ⚠️  No parseable timestamp in new entries; cursor kept\n")
+		}
+		return
+	}
 
 	if scanCfg.dryRun {
 		fmt.Printf("        🔸 DRY RUN: Would update state to: %s\n", latestTime.Format(time.RFC3339))

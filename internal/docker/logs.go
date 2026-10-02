@@ -113,23 +113,21 @@ func dropEntriesAtOrBefore(entries []LogEntry, since time.Time) []LogEntry {
 	return kept
 }
 
-// GetLatestLogTime returns the timestamp of the most recent log entry
+// GetLatestLogTime returns the timestamp of the most recent log entry.
+// It walks backwards over trailing entries with an empty or unparseable
+// timestamp and returns the last parseable one, so a trailing non-timestamped
+// line does not push a zero cursor into the state. The zero time is returned
+// only when no entry has a usable timestamp.
 func GetLatestLogTime(entries []LogEntry) (time.Time, error) {
-	if len(entries) == 0 {
-		return time.Time{}, nil
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entries[i].Timestamp == "" {
+			continue
+		}
+		t, err := parseLogTimestamp(entries[i].Timestamp)
+		if err != nil {
+			continue
+		}
+		return t, nil
 	}
-
-	// Get the last entry's timestamp
-	lastEntry := entries[len(entries)-1]
-	if lastEntry.Timestamp == "" {
-		return time.Time{}, nil
-	}
-
-	// Parse the timestamp
-	t, err := parseLogTimestamp(lastEntry.Timestamp)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to parse timestamp '%s' in log entry %d: %w", lastEntry.Timestamp, len(entries)-1, err)
-	}
-
-	return t, nil
+	return time.Time{}, nil
 }

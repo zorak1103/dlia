@@ -262,17 +262,17 @@ func TestGetLatestLogTime_Various(t *testing.T) {
 			entries: []LogEntry{
 				{Timestamp: "not-a-valid-timestamp", Message: "bad"},
 			},
-			expectError: true,
-			expectZero:  false,
+			expectError: false,
+			expectZero:  true, // no usable timestamp anywhere
 		},
 		{
-			name: "mixed valid and empty timestamps - uses last valid",
+			name: "trailing entry without timestamp - walks back to last valid",
 			entries: []LogEntry{
 				{Timestamp: "2025-01-01T10:00:00Z", Message: "valid"},
 				{Timestamp: "", Message: "no timestamp"},
 			},
 			expectError: false,
-			expectZero:  true, // Last entry has no timestamp
+			expectZero:  false, // falls back to the last parseable entry
 		},
 	}
 
@@ -457,6 +457,65 @@ func TestGetLatestLogTime_Ordering(t *testing.T) {
 	}
 }
 
+// TestGetLatestLogTime_WalksBackOverTrailingUnusable pins that
+// GetLatestLogTime skips trailing entries with an empty or unparseable
+// timestamp and returns the last parseable timestamp instead of a zero
+// time (which would be written as a zero cursor and re-read the full
+// history on the next scan).
+func TestGetLatestLogTime_WalksBackOverTrailingUnusable(t *testing.T) {
+	expected, _ := time.Parse(time.RFC3339, "2025-01-01T10:00:01Z")
+
+	t.Run("trailing empty timestamp", func(t *testing.T) {
+		entries := []LogEntry{
+			{Timestamp: "2025-01-01T10:00:00Z", Message: "ok"},
+			{Timestamp: "2025-01-01T10:00:01Z", Message: "ok"},
+			{Timestamp: "", Message: "trailing, no timestamp"},
+		}
+
+		latestTime, err := GetLatestLogTime(entries)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if !latestTime.Equal(expected) {
+			t.Errorf("Expected %v, got %v", expected, latestTime)
+		}
+	})
+
+	t.Run("trailing unparseable timestamp", func(t *testing.T) {
+		entries := []LogEntry{
+			{Timestamp: "2025-01-01T10:00:00Z", Message: "ok"},
+			{Timestamp: "2025-01-01T10:00:01Z", Message: "ok"},
+			{Timestamp: "not-a-timestamp", Message: "trailing, unparseable"},
+		}
+
+		latestTime, err := GetLatestLogTime(entries)
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if !latestTime.Equal(expected) {
+			t.Errorf("Expected %v, got %v", expected, latestTime)
+		}
+	})
+}
+
+// TestGetLatestLogTime_AllUnusable pins that a batch whose entries have no
+// usable timestamp at all (empty or unparseable) returns the zero time with
+// no error; updateContainerState must not advance the cursor in that case.
+func TestGetLatestLogTime_AllUnusable(t *testing.T) {
+	entries := []LogEntry{
+		{Timestamp: "not-a-timestamp", Message: "bad"},
+		{Timestamp: "", Message: "empty"},
+	}
+
+	latestTime, err := GetLatestLogTime(entries)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if !latestTime.IsZero() {
+		t.Errorf("Expected zero time, got %v", latestTime)
+	}
+}
+
 func TestParseLogStream_BinaryContent(t *testing.T) {
 	// Test parsing with binary content in Docker header
 	var buf bytes.Buffer
@@ -616,17 +675,17 @@ func TestDropEntriesAtOrBefore(t *testing.T) {
 	}
 }
 
-// TestGetLatestLogTime_ParseErrorEntryIndex pins the entry index in the
-// parse-error message: the zero-based index of the last entry.
-func TestGetLatestLogTime_ParseErrorEntryIndex(t *testing.T) {
+// TestGetLatestLogTime_UnparseableLastFallsBack pins that an unparseable
+// last entry does not abort with an error: the previous parseable entry
+// wins so the cursor still advances past the usable lines.
+func TestGetLatestLogTime_UnparseableLastFallsBack(t *testing.T) {
 	entries := []LogEntry{
 		{Timestamp: "2025-01-01T10:00:00Z", Message: "ok"},
-		{Timestamp: "2025-01-01T10:00:01Z", Message: "ok"},
 		{Timestamp: "not-a-timestamp", Message: "bad"},
 	}
 
-	_, err := GetLatestLogTime(entries)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "in log entry 2")
-	assert.Contains(t, err.Error(), "not-a-timestamp")
+	latestTime, err := GetLatestLogTime(entries)
+	require.NoError(t, err)
+	expected, _ := time.Parse(time.RFC3339, "2025-01-01T10:00:00Z")
+	assert.True(t, latestTime.Equal(expected), "expected %v, got %v", expected, latestTime)
 }
