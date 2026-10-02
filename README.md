@@ -638,8 +638,10 @@ The shipped `docker-compose.yml` puts [linuxserver/socket-proxy](https://github.
 If the proxy denies a request (HTTP 403), for example because `ALLOW_LOGS=1` is missing, DLIA's error says so:
 
 ```
-failed to read logs for container abc123: ... (socket proxy denied the request: enable CONTAINERS=1 and ALLOW_LOGS=1, see README)
+failed to read logs for container abc123: ... (socket proxy may have denied the request: enable CONTAINERS=1 and ALLOW_LOGS=1, see README)
 ```
+
+The hint appears when DLIA reaches the daemon over the network (`tcp://`, the socket-proxy setup); a local `unix://` or `npipe://` socket gets no hint, because a 403 from a local daemon is not a proxy misconfiguration.
 
 Never publish the proxy's port 2375. The `socket-proxy` network is `internal`, so only DLIA can reach it. DLIA also joins the `default` network to reach the LLM API and notification services.
 
