@@ -448,7 +448,11 @@ func saveStateIfNeeded(st *state.State, scanCfg *scanConfig, lookbackDuration ti
 
 func updateGlobalSummary(globalResults map[string]*chunking.AnalyzeResult, cfg *config.Config, scanCfg *scanConfig) error {
 	if !scanCfg.dryRun && len(globalResults) > 0 {
-		if err := knowledge.UpdateGlobalSummary(globalResults, cfg); err != nil {
+		outcomes := make(map[string]knowledge.ServiceOutcome, len(globalResults))
+		for name, res := range globalResults {
+			outcomes[name] = knowledge.ServiceOutcome{Result: res}
+		}
+		if err := knowledge.UpdateGlobalSummary(outcomes, cfg); err != nil {
 			return err
 		}
 		if scanCfg.verbose {

@@ -11,169 +11,171 @@ import (
 
 	"github.com/zorak1103/dlia/internal/chunking"
 	"github.com/zorak1103/dlia/internal/config"
+	"github.com/zorak1103/dlia/internal/severity"
 )
 
-// UpdateGlobalSummary updates the main dashboard summary by aggregating
-// analysis results from all services into a single markdown file.
-func UpdateGlobalSummary(results map[string]*chunking.AnalyzeResult, cfg *config.Config) error {
+// ServiceOutcome bundles an analysis result with the path to its saved report.
+// A nil Result means the analysis failed.
+type ServiceOutcome struct {
+	Result     *chunking.AnalyzeResult // nil = analysis failed
+	ReportPath string                  // "" = no report saved
+}
+
+// UpdateGlobalSummary writes the main dashboard markdown file aggregating all outcomes.
+func UpdateGlobalSummary(outcomes map[string]ServiceOutcome, cfg *config.Config) error {
 	if err := os.MkdirAll(cfg.Output.KnowledgeBaseDir, 0o750); err != nil {
 		return fmt.Errorf("failed to create KB directory: %w", err)
 	}
 
-	sortedKeys := sortedServiceNames(results)
-	content := buildGlobalSummaryContent(results, sortedKeys)
-
+	content := buildGlobalSummaryContent(outcomes, cfg.Output.KnowledgeBaseDir)
 	filePath := filepath.Join(cfg.Output.KnowledgeBaseDir, "global_summary.md")
 
 	return os.WriteFile(filePath, []byte(content), 0o600)
 }
 
-// sortedServiceNames returns service names sorted alphabetically for consistent output.
-func sortedServiceNames(results map[string]*chunking.AnalyzeResult) []string {
-	keys := make([]string, 0, len(results))
-	for k := range results {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	return keys
-}
-
-// buildGlobalSummaryContent assembles the complete markdown content for the global summary.
-func buildGlobalSummaryContent(results map[string]*chunking.AnalyzeResult, sortedKeys []string) string {
+func buildGlobalSummaryContent(outcomes map[string]ServiceOutcome, kbDir string) string {
 	var sb strings.Builder
 
 	writeHeader(&sb)
-	writeHealthOverview(&sb, results)
-	writeServiceStatusTable(&sb, results, sortedKeys)
-	writeCriticalIssuesSection(&sb, results, sortedKeys)
+	writeHealthOverview(&sb, outcomes)
+
+	sortedKeys := sortedNames(outcomes)
+	writeServiceStatusTable(&sb, outcomes, sortedKeys)
+	writeAttentionSection(&sb, outcomes, sortedKeys, kbDir)
 
 	return sb.String()
 }
 
-// writeHeader writes the document title and timestamp.
 func writeHeader(sb *strings.Builder) {
 	timestamp := time.Now().Format(time.RFC1123)
 	sb.WriteString("# 🌍 Global System Summary\n\n")
 	fmt.Fprintf(sb, "**Last Updated:** %s\n\n", timestamp)
 }
 
-// writeHealthOverview writes the system health status section.
-func writeHealthOverview(sb *strings.Builder, results map[string]*chunking.AnalyzeResult) {
-	issueCount := countServicesWithIssues(results)
+func writeHealthOverview(sb *strings.Builder, outcomes map[string]ServiceOutcome) {
+	needAttention := countNeedingAttention(outcomes)
 
 	healthStatus := "🟢 All Systems Operational"
-	if issueCount > 0 {
-		healthStatus = fmt.Sprintf("⚠️ %d Service(s) Reporting Issues", issueCount)
+	if needAttention > 0 {
+		healthStatus = fmt.Sprintf("⚠️ %d Service(s) Need Attention", needAttention)
 	}
 
 	fmt.Fprintf(sb, "## System Health: %s\n\n", healthStatus)
 }
 
-// countServicesWithIssues returns the number of services that have critical issues.
-func countServicesWithIssues(results map[string]*chunking.AnalyzeResult) int {
+func countNeedingAttention(outcomes map[string]ServiceOutcome) int {
 	count := 0
-	for _, res := range results {
-		if hasIssues(res.Analysis) {
+	for _, o := range outcomes {
+		if o.Result == nil || o.Result.Severity >= severity.Warning {
 			count++
 		}
 	}
-
 	return count
 }
 
-// writeServiceStatusTable writes the service status table in markdown format.
-func writeServiceStatusTable(sb *strings.Builder, results map[string]*chunking.AnalyzeResult, sortedKeys []string) {
+func writeServiceStatusTable(sb *strings.Builder, outcomes map[string]ServiceOutcome, sortedKeys []string) {
 	sb.WriteString("## Service Status\n\n")
 	sb.WriteString("| Service | Status | Last Analysis |\n")
 	sb.WriteString("|---------|--------|---------------|\n")
 
 	for _, name := range sortedKeys {
-		res := results[name]
-		status := determineServiceStatus(res.Analysis)
-		summary := extractSummary(res.Analysis)
-		fmt.Fprintf(sb, "| %s | %s | %s |\n", name, status, summary)
+		o := outcomes[name]
+		if o.Result == nil {
+			fmt.Fprintf(sb, "| %s | %s | – |\n", name, severity.FailedLabel)
+		} else {
+			summary := extractSummary(o.Result.Analysis)
+			fmt.Fprintf(sb, "| %s | %s | %s |\n", name, o.Result.Severity.Badge(), summary)
+		}
 	}
 }
 
-// determineServiceStatus returns an emoji status indicator based on analysis content.
-func determineServiceStatus(analysis string) string {
-	switch {
-	case hasIssues(analysis):
-		return "🔴 Issues"
-	case hasWarnings(analysis):
-		return "🟡 Warning"
+// attentionRank returns the sort rank for a service in the attention list.
+// Critical=0, Unknown=1, Warning=2, failed=3. OK returns 4 (excluded).
+func attentionRank(o ServiceOutcome) int {
+	if o.Result == nil {
+		return 3
+	}
+	switch o.Result.Severity {
+	case severity.Critical:
+		return 0
+	case severity.Unknown:
+		return 1
+	case severity.Warning:
+		return 2
+	case severity.OK:
+		return 4
 	default:
-		return "🟢 OK"
+		return 4
 	}
 }
 
-// writeCriticalIssuesSection writes the critical issues section listing all services with problems.
-func writeCriticalIssuesSection(sb *strings.Builder, results map[string]*chunking.AnalyzeResult, sortedKeys []string) {
-	sb.WriteString("\n## Recent Critical Issues\n\n")
+func writeAttentionSection(sb *strings.Builder, outcomes map[string]ServiceOutcome, sortedKeys []string, kbDir string) {
+	sb.WriteString("\n## Services Needing Attention\n\n")
 
-	hasCritical := false
+	type attentionEntry struct {
+		name string
+		rank int
+		o    ServiceOutcome
+	}
 
+	var entries []attentionEntry
 	for _, name := range sortedKeys {
-		res := results[name]
-		if hasIssues(res.Analysis) {
-			hasCritical = true
-			fmt.Fprintf(sb, "### %s\n", name)
-			sb.WriteString(extractErrors(res.Analysis))
-			sb.WriteString("\n")
+		o := outcomes[name]
+		rank := attentionRank(o)
+		if rank < 4 {
+			entries = append(entries, attentionEntry{name: name, rank: rank, o: o})
 		}
 	}
 
-	if !hasCritical {
-		sb.WriteString("*No critical issues reported in the last scan.*")
+	if len(entries) == 0 {
+		sb.WriteString("*No services need attention.*\n")
+		return
 	}
-}
 
-// hasIssues checks if the analysis contains critical errors.
-func hasIssues(analysis string) bool {
-	lower := strings.ToLower(analysis)
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].rank != entries[j].rank {
+			return entries[i].rank < entries[j].rank
+		}
+		return entries[i].name < entries[j].name
+	})
 
-	return strings.Contains(lower, "critical") || strings.Contains(lower, "error")
-}
+	for _, e := range entries {
+		var badge string
+		if e.o.Result == nil {
+			badge = severity.FailedLabel
+		} else {
+			badge = e.o.Result.Severity.Badge()
+		}
 
-// hasWarnings checks if the analysis contains warnings.
-func hasWarnings(analysis string) bool {
-	return strings.Contains(strings.ToLower(analysis), "warning")
-}
-
-// extractSummary extracts a brief summary from the analysis text.
-func extractSummary(analysis string) string {
-	// strings.Split never returns an empty slice, so lines[0] always exists.
-	lines := strings.Split(analysis, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "**Summary**") {
-			return strings.TrimSpace(strings.Replace(line, "**Summary**:", "", 1))
+		link := reportLink(e.o.ReportPath, kbDir)
+		if link != "" {
+			fmt.Fprintf(sb, "- %s **%s** – [latest report](%s)\n", badge, e.name, link)
+		} else {
+			fmt.Fprintf(sb, "- %s **%s**\n", badge, e.name)
 		}
 	}
-
-	return truncate(lines[0], 50)
 }
 
-// extractErrors extracts the errors section from the analysis text.
-func extractErrors(analysis string) string {
-	start := strings.Index(analysis, "**Errors**")
-	if start == -1 {
-		return "Issues detected but could not parse specific errors."
+// reportLink builds a relative forward-slash link from kbDir to reportPath,
+// wrapped in angle brackets for paths that may contain spaces.
+// Returns "" when reportPath is empty.
+func reportLink(reportPath, kbDir string) string {
+	if reportPath == "" {
+		return ""
 	}
-
-	end := strings.Index(analysis[start:], "**Warnings**")
-	if end == -1 {
-		end = len(analysis) - start
+	rel, err := filepath.Rel(kbDir, reportPath)
+	if err != nil {
+		rel = reportPath
 	}
-
-	return strings.TrimSpace(analysis[start : start+end])
+	rel = filepath.ToSlash(rel)
+	return "<" + rel + ">"
 }
 
-// truncate shortens a string to maxLen characters, adding ellipsis if truncated.
-func truncate(s string, maxLen int) string {
-	if len(s) > maxLen {
-		return s[:maxLen] + "..."
+func sortedNames(outcomes map[string]ServiceOutcome) []string {
+	keys := make([]string, 0, len(outcomes))
+	for k := range outcomes {
+		keys = append(keys, k)
 	}
-
-	return s
+	sort.Strings(keys)
+	return keys
 }

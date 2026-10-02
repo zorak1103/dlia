@@ -127,6 +127,8 @@ type AnalyzeResult struct {
 	FilterStats    FilterStats
 	// CoverageNotes lists parts of the logs that were not analyzed (rendered in the report).
 	CoverageNotes []string
+	// Severity is the level the model stated on its final SEVERITY line (zero value OK).
+	Severity severity.Level
 }
 
 // applyRegexpFilter applies container-specific regexp filtering to logs.
