@@ -35,7 +35,7 @@ func UpdateServiceKB(containerName string, analysis *chunking.AnalyzeResult, cfg
 	// Path is safe: constructed from config dir + sanitized container name
 	var content string
 	if data, err := os.ReadFile(filePath); err == nil {
-		content = string(data)
+		content = strings.ReplaceAll(string(data), "\r\n", "\n")
 	} else {
 		content = fmt.Sprintf("# Knowledge Base: %s\n\n", containerName)
 		content += "## Service History\n"
@@ -160,8 +160,9 @@ func extractSummary(analysis string) string {
 
 // truncate shortens a string to maxLen characters, adding ellipsis if truncated.
 func truncate(s string, maxLen int) string {
-	if len(s) > maxLen {
-		return s[:maxLen] + "..."
+	runes := []rune(s)
+	if len(runes) > maxLen {
+		return string(runes[:maxLen]) + "..."
 	}
 
 	return s
