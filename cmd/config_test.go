@@ -646,8 +646,9 @@ func TestConfigCmd_OutputsKnowledgeRetentionDays(t *testing.T) {
 			SocketPath: "unix:///var/run/docker.sock",
 		},
 		Notification: config.NotificationConfig{
-			Enabled:    false,
-			ShoutrrURL: "",
+			Enabled:     false,
+			ShoutrrURL:  "",
+			MinSeverity: "critical",
 		},
 		Output: config.OutputConfig{
 			ReportsDir:             reportsDir,
@@ -688,6 +689,7 @@ func TestConfigCmd_OutputsKnowledgeRetentionDays(t *testing.T) {
 	// Assert: Check that knowledge_retention_days is in the output
 	assert.Contains(t, output, "Knowledge Retention:", "Output should contain 'Knowledge Retention:' label")
 	assert.Contains(t, output, "45 days", "Output should contain the configured value '45 days'")
+	assert.Contains(t, output, "Min Severity:   critical", "Output should contain the configured min_severity")
 	assert.Regexp(t, `Context Window:\s+8000`, output)
 	assert.Regexp(t, `Max Chunks:\s+7`, output)
 	assert.Regexp(t, `Max Window:\s+36h0m0s`, output)

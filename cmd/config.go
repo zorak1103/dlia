@@ -121,6 +121,7 @@ Sensitive values like API keys are masked for security.`,
 		fmt.Println("🔔 Notification Configuration:")
 		fmt.Printf("   Enabled:        %v\n", cfg.Notification.Enabled)
 		fmt.Printf("   Shoutrrr URL:   %s\n", maskShoutrrrURL(cfg.Notification.ShoutrrURL))
+		fmt.Printf("   Min Severity:   %s\n", cfg.Notification.MinSeverity)
 		fmt.Println()
 
 		// Output Configuration
