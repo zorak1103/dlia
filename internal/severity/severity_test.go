@@ -156,6 +156,50 @@ func TestParse(t *testing.T) {
 			wantLevel: severity.Unknown,
 			wantText:  "x\nThe SEVERITY: ok marker",
 		},
+		// Markdown decoration between label and colon
+		{
+			name:      "bold label before colon",
+			input:     "x\n**SEVERITY**: warning",
+			wantLevel: severity.Warning,
+			wantText:  "x",
+		},
+		{
+			name:      "bold label mixed case before colon",
+			input:     "x\n**Severity**: critical",
+			wantLevel: severity.Critical,
+			wantText:  "x",
+		},
+		{
+			name:      "trailing period",
+			input:     "x\nSEVERITY: ok.",
+			wantLevel: severity.OK,
+			wantText:  "x",
+		},
+		{
+			name:      "backtick label before colon",
+			input:     "x\n`SEVERITY`: ok",
+			wantLevel: severity.OK,
+			wantText:  "x",
+		},
+		// Negative: list markers must not match
+		{
+			name:      "dash list marker",
+			input:     "x\n- SEVERITY: ok",
+			wantLevel: severity.Unknown,
+			wantText:  "x\n- SEVERITY: ok",
+		},
+		{
+			name:      "blockquote marker",
+			input:     "x\n> SEVERITY: ok",
+			wantLevel: severity.Unknown,
+			wantText:  "x\n> SEVERITY: ok",
+		},
+		{
+			name:      "inline mention with trailing text",
+			input:     "x\nSEVERITY: ok because logs are quiet",
+			wantLevel: severity.Unknown,
+			wantText:  "x\nSEVERITY: ok because logs are quiet",
+		},
 	}
 
 	for _, tc := range tests {

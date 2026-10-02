@@ -96,7 +96,9 @@ func ParseThreshold(s string) (Level, error) {
 
 // severityLineRe matches a standalone SEVERITY line with optional Markdown decoration.
 // It is anchored so that inline mentions (e.g. "The SEVERITY: ok marker") are not matched.
-var severityLineRe = regexp.MustCompile(`(?i)^\s*[*_` + "`" + `]*\s*SEVERITY\s*:\s*[*_` + "`" + `]*\s*([a-z]+)\s*[*_` + "`" + `]*\s*$`)
+// Decoration (bold/italic/backtick markers) is allowed between the word and the colon,
+// and a trailing period is permitted after the value.
+var severityLineRe = regexp.MustCompile(`(?i)^\s*[*_` + "`" + `]*\s*SEVERITY\s*[*_` + "`" + `]*\s*:\s*[*_` + "`" + `]*\s*([a-z]+)\s*[*_` + "`" + `.]*\s*$`)
 
 // parseValue maps a raw level string to a Level, returning (level, true) on success.
 func parseValue(raw string) (Level, bool) {
