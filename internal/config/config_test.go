@@ -871,10 +871,21 @@ func TestValidate_ReliabilityRanges(t *testing.T) {
 		{"max_chunk_summary_tokens below minimum", func(c *Config) { c.LLM.MaxChunkSummaryTokens = 255 }, "llm.max_chunk_summary_tokens must be at least 256"},
 		{"max_answer_tokens at minimum", func(c *Config) {
 			c.LLM.MaxAnswerTokens = MinAnswerTokens
+			c.LLM.MaxChunkSummaryTokens = MinAnswerTokens
 			c.LLM.ContextWindow = MinContextWindowFor(MinAnswerTokens)
 		}, ""},
 		{"context_window below dynamic minimum", func(c *Config) { c.LLM.MaxAnswerTokens = 6000; c.LLM.ContextWindow = 8124 }, "at least 8125 for llm.max_answer_tokens=6000"},
 		{"context_window at dynamic minimum", func(c *Config) { c.LLM.MaxAnswerTokens = 6000; c.LLM.ContextWindow = 8125 }, ""},
+		{"context_window below minimum for chunk summary", func(c *Config) {
+			c.LLM.MaxAnswerTokens = MinAnswerTokens
+			c.LLM.MaxChunkSummaryTokens = 8000
+			c.LLM.ContextWindow = 945
+		}, "llm.context_window must be at least 10625 for llm.max_chunk_summary_tokens=8000, got 945"},
+		{"context_window at minimum for chunk summary", func(c *Config) {
+			c.LLM.MaxAnswerTokens = MinAnswerTokens
+			c.LLM.MaxChunkSummaryTokens = 8000
+			c.LLM.ContextWindow = 10625
+		}, ""},
 	}
 
 	for _, tt := range tests {

@@ -436,14 +436,18 @@ func (c *Config) validateLLMLimits(configSource string) error {
 		}
 	}
 
-	minWindow := MinContextWindowFor(c.LLM.MaxAnswerTokens)
+	limitName, limit := "llm.max_answer_tokens", c.LLM.MaxAnswerTokens
+	if c.LLM.MaxChunkSummaryTokens > limit {
+		limitName, limit = "llm.max_chunk_summary_tokens", c.LLM.MaxChunkSummaryTokens
+	}
+	minWindow := MinContextWindowFor(limit)
 	if c.LLM.ContextWindow < minWindow {
 		name := "llm.context_window"
 		if c.LLM.contextWindowFromAlias {
 			name = fmt.Sprintf("llm.context_window (set via deprecated llm.max_tokens=%d)", c.LLM.MaxTokens)
 		}
-		return fmt.Errorf("%s must be at least %d for llm.max_answer_tokens=%d, got %d in config %s",
-			name, minWindow, c.LLM.MaxAnswerTokens, c.LLM.ContextWindow, configSource)
+		return fmt.Errorf("%s must be at least %d for %s=%d, got %d in config %s",
+			name, minWindow, limitName, limit, c.LLM.ContextWindow, configSource)
 	}
 	return nil
 }
