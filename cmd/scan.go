@@ -617,7 +617,7 @@ func generateExecutiveSummary(ctx context.Context, _ *chunking.Pipeline, contain
 		return "", fmt.Errorf("failed to load executive summary prompt: %w", err)
 	}
 
-	llmClient := newLLMClient(cfg.LLM.BaseURL, cfg.LLM.APIKey, cfg.LLM.Model)
+	llmClient := newLLMClient(llmOptions(cfg))
 
 	// Empty container name parameter: this is a cross-container global summary
 	summary, _, err := llmClient.Analyze(ctx, "", m.System, m.User)

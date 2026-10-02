@@ -110,6 +110,18 @@ func displayAnalysisResults(result *chunking.AnalyzeResult, scanCfg *scanConfig)
 // newLLMClient is a seam for tests to stub LLM client construction.
 var newLLMClient = llm.NewClient
 
+// llmOptions maps the LLM section of the config to client options.
+func llmOptions(cfg *config.Config) llm.Options {
+	return llm.Options{
+		BaseURL:               cfg.LLM.BaseURL,
+		APIKey:                cfg.LLM.APIKey,
+		Model:                 cfg.LLM.Model,
+		MaxAnswerTokens:       cfg.LLM.MaxAnswerTokens,
+		MaxChunkSummaryTokens: cfg.LLM.MaxChunkSummaryTokens,
+		ExtraBody:             cfg.LLM.ExtraBody,
+	}
+}
+
 // scanNotifier is the interface used by handleExecutiveSummaryAndNotifications.
 // It allows tests to inject a fake without hitting Shoutrrr.
 type scanNotifier interface {
@@ -125,7 +137,7 @@ func initializeLLMPipeline(cfg *config.Config, scanCfg *scanConfig) (*chunking.P
 		return nil, fmt.Errorf("LLM API key not configured (set DLIA_LLM_API_KEY in .env)")
 	}
 
-	llmClient := newLLMClient(cfg.LLM.BaseURL, cfg.LLM.APIKey, cfg.LLM.Model)
+	llmClient := newLLMClient(llmOptions(cfg))
 
 	llmLogEnabled := scanCfg.llmLog || cfg.Output.LLMLogEnabled
 	if llmLogEnabled {

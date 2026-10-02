@@ -228,9 +228,11 @@ func TestEval(t *testing.T) {
 		Model:                 model,
 		ContextWindow:         ctxWindow,
 		MaxChunksPerContainer: 10,
-	}}
+	},
+		Privacy: config.PrivacyConfig{AnonymizeIPs: true, AnonymizeSecrets: true},
+	}
 	loader := prompts.NewPromptLoader(cfg)
-	client := llm.NewClient(baseURL, apiKey, model)
+	client := llm.NewClient(llm.Options{BaseURL: baseURL, APIKey: apiKey, Model: model})
 	pipeline, err := chunking.NewPipelineWithConfig(model, ctxWindow, client, loader, t.TempDir(), cfg)
 	if err != nil {
 		t.Fatalf("create pipeline: %v", err)
