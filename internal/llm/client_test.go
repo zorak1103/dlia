@@ -23,7 +23,7 @@ func TestNewClient(t *testing.T) {
 	apiKey := "test-key"
 	model := "gpt-4"
 
-	client := NewClient(baseURL, apiKey, model)
+	client := NewClient(Options{BaseURL: baseURL, APIKey: apiKey, Model: model})
 
 	// Type assert to access implementation fields for testing
 	impl, ok := client.(*clientImpl)
@@ -175,7 +175,7 @@ func TestClient_Analyze(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewClient(server.URL, "test-key", "test-model")
+			client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 			ctx := context.Background()
 
 			content, usage, err := client.Analyze(ctx, "", tt.systemPrompt, tt.userPrompt)
@@ -278,7 +278,7 @@ func TestClient_SummarizeChunk(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewClient(server.URL, "test-key", "test-model")
+			client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 			ctx := context.Background()
 
 			content, err := client.SummarizeChunk(ctx, "", tt.systemPrompt, tt.chunkPrompt)
@@ -327,7 +327,7 @@ func TestClient_RetryLogic(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model")
+	client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 	ctx := context.Background()
 
 	content, usage, err := client.Analyze(ctx, "", "system", "user")
@@ -357,7 +357,7 @@ func TestClient_RetryLogic_ContextCanceledDuringBackoff(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model")
+	client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
@@ -386,7 +386,7 @@ func TestClient_MaxRetriesExceeded(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model")
+	client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 	ctx := context.Background()
 
 	start := time.Now()
@@ -418,7 +418,7 @@ func TestClient_ContextCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model")
+	client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 
 	// Create context with short timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -443,7 +443,7 @@ func TestClient_InvalidJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model")
+	client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 	ctx := context.Background()
 
 	_, _, err := client.Analyze(ctx, "", "system", "user")
@@ -478,7 +478,7 @@ func TestClient_EmptyAPIKey(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "", "test-model")
+	client := NewClient(Options{BaseURL: server.URL, APIKey: "", Model: "test-model"})
 	ctx := context.Background()
 
 	content, _, err := client.Analyze(ctx, "", "system", "user")
@@ -537,7 +537,7 @@ func TestClient_RequestSerialization(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model")
+	client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 	ctx := context.Background()
 
 	messages := []ChatMessage{
@@ -595,7 +595,7 @@ func TestAnalyze_LoggerGuards(t *testing.T) {
 
 	t.Run("successful log write is silent", func(t *testing.T) {
 		server := newAnalyzeTestServer(t)
-		client := NewClient(server.URL, "test-key", "test-model")
+		client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 		client.SetLogger(llmlogger.NewLogger(t.TempDir(), true))
 
 		read := captureStdout(t)
@@ -623,7 +623,7 @@ func TestAnalyze_LoggerGuards(t *testing.T) {
 		if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 			t.Fatalf("could not create blocker file: %v", err)
 		}
-		client := NewClient(server.URL, "test-key", "test-model")
+		client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 		client.SetLogger(llmlogger.NewLogger(blocker, true))
 
 		read := captureStdout(t)
@@ -647,7 +647,7 @@ func TestSummarizeChunk_LoggerGuards(t *testing.T) {
 
 	t.Run("successful log write is silent", func(t *testing.T) {
 		server := newAnalyzeTestServer(t)
-		client := NewClient(server.URL, "test-key", "test-model")
+		client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 		client.SetLogger(llmlogger.NewLogger(t.TempDir(), true))
 
 		read := captureStdout(t)
@@ -671,7 +671,7 @@ func TestSummarizeChunk_LoggerGuards(t *testing.T) {
 		if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 			t.Fatalf("could not create blocker file: %v", err)
 		}
-		client := NewClient(server.URL, "test-key", "test-model")
+		client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 		client.SetLogger(llmlogger.NewLogger(blocker, true))
 
 		read := captureStdout(t)
@@ -697,7 +697,7 @@ func TestClient_RetryNetworkErrorExhausted(t *testing.T) {
 	baseURL := server.URL
 	server.Close()
 
-	client := NewClient(baseURL, "test-key", "test-model")
+	client := NewClient(Options{BaseURL: baseURL, APIKey: "test-key", Model: "test-model"})
 
 	_, err := client.ChatCompletion(
 		context.Background(),
@@ -722,7 +722,7 @@ func TestClient_ReadResponseBodyError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model")
+	client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 
 	_, err := client.ChatCompletion(
 		context.Background(),
@@ -739,7 +739,7 @@ func TestClient_ReadResponseBodyError(t *testing.T) {
 }
 
 func TestClient_MarshalRequestError(t *testing.T) {
-	client := NewClient("http://api.example.invalid/v1", "test-key", "test-model")
+	client := NewClient(Options{BaseURL: "http://api.example.invalid/v1", APIKey: "test-key", Model: "test-model"})
 
 	// NaN cannot be represented in JSON, so marshaling the request fails
 	// before any HTTP traffic happens.
@@ -759,7 +759,7 @@ func TestClient_MarshalRequestError(t *testing.T) {
 
 func TestClient_NewRequestError(t *testing.T) {
 	// A base URL without a scheme makes http.NewRequestWithContext fail.
-	client := NewClient("://invalid-base-url", "test-key", "test-model")
+	client := NewClient(Options{BaseURL: "://invalid-base-url", APIKey: "test-key", Model: "test-model"})
 
 	_, err := client.ChatCompletion(
 		context.Background(),
@@ -782,7 +782,7 @@ func TestClient_OKResponseWithAPIError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model")
+	client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 
 	_, err := client.ChatCompletion(
 		context.Background(),
@@ -811,7 +811,7 @@ func TestClient_SummarizeChunk_PropagatesCompletionError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model")
+	client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 
 	_, err := client.SummarizeChunk(context.Background(), "test-container", "system", "chunk")
 	if err == nil {
@@ -835,7 +835,7 @@ func TestClient_ServerError500RetriedThreeTimes(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model")
+	client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 
 	_, err := client.ChatCompletion(
 		context.Background(),
@@ -865,7 +865,7 @@ func TestClient_APIErrorExtractedFromNon200Response(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "test-key", "test-model")
+	client := NewClient(Options{BaseURL: server.URL, APIKey: "test-key", Model: "test-model"})
 
 	_, _, err := client.Analyze(context.Background(), "", "system", "user")
 	if err == nil {
@@ -883,3 +883,198 @@ func TestClient_APIErrorExtractedFromNon200Response(t *testing.T) {
 }
 
 // Helper function to check if string contains substring
+
+// captureServer returns a test server that records the decoded request body
+// and answers with the given content and finish reason (omitted if empty).
+func captureServer(t *testing.T, content, finish string) (*httptest.Server, *map[string]any) {
+	t.Helper()
+	got := map[string]any{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		choice := map[string]any{"message": map[string]any{"role": "assistant", "content": content}}
+		if finish != "" {
+			choice["finish_reason"] = finish
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{choice}})
+	}))
+	t.Cleanup(server.Close)
+	return server, &got
+}
+
+func TestAnalyze_DefaultLimit(t *testing.T) {
+	server, got := captureServer(t, "ok", "stop")
+	client := NewClient(Options{BaseURL: server.URL, Model: "m"})
+
+	if _, _, err := client.Analyze(context.Background(), "nginx", "sys", "usr"); err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if (*got)["max_tokens"] != float64(4000) {
+		t.Errorf("max_tokens = %v, want 4000", (*got)["max_tokens"])
+	}
+	if (*got)["temperature"] != 0.3 {
+		t.Errorf("temperature = %v, want 0.3", (*got)["temperature"])
+	}
+}
+
+func TestSummarizeChunk_DefaultLimit(t *testing.T) {
+	server, got := captureServer(t, "ok", "stop")
+	client := NewClient(Options{BaseURL: server.URL, Model: "m"})
+
+	if _, err := client.SummarizeChunk(context.Background(), "nginx", "sys", "usr"); err != nil {
+		t.Fatalf("SummarizeChunk: %v", err)
+	}
+	if (*got)["max_tokens"] != float64(2000) {
+		t.Errorf("max_tokens = %v, want 2000", (*got)["max_tokens"])
+	}
+}
+
+func TestAnalyze_ConfiguredLimits(t *testing.T) {
+	server, got := captureServer(t, "ok", "stop")
+	client := NewClient(Options{BaseURL: server.URL, Model: "m", MaxAnswerTokens: 6000, MaxChunkSummaryTokens: 3000})
+
+	if _, _, err := client.Analyze(context.Background(), "nginx", "sys", "usr"); err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if (*got)["max_tokens"] != float64(6000) {
+		t.Errorf("Analyze max_tokens = %v, want 6000", (*got)["max_tokens"])
+	}
+	if _, err := client.SummarizeChunk(context.Background(), "nginx", "sys", "usr"); err != nil {
+		t.Fatalf("SummarizeChunk: %v", err)
+	}
+	if (*got)["max_tokens"] != float64(3000) {
+		t.Errorf("SummarizeChunk max_tokens = %v, want 3000", (*got)["max_tokens"])
+	}
+}
+
+func TestChatCompletion_ExtraBodyMerged(t *testing.T) {
+	server, got := captureServer(t, "ok", "stop")
+	client := NewClient(Options{BaseURL: server.URL, Model: "m", ExtraBody: map[string]any{
+		"provider":  map[string]any{"zdr": true},
+		"reasoning": map[string]any{"effort": "low"},
+	}})
+
+	msgs := []ChatMessage{{Role: "user", Content: "hi"}}
+	if _, err := client.ChatCompletion(context.Background(), msgs, 0.3, 100); err != nil {
+		t.Fatalf("ChatCompletion: %v", err)
+	}
+	provider, _ := (*got)["provider"].(map[string]any)
+	if provider["zdr"] != true {
+		t.Errorf("provider.zdr = %v, want true", provider["zdr"])
+	}
+	reasoning, _ := (*got)["reasoning"].(map[string]any)
+	if reasoning["effort"] != "low" {
+		t.Errorf("reasoning.effort = %v, want low", reasoning["effort"])
+	}
+	for _, k := range []string{"model", "messages", "max_tokens"} {
+		if _, ok := (*got)[k]; !ok {
+			t.Errorf("body missing %q", k)
+		}
+	}
+}
+
+func TestChatCompletion_EmptyExtraBodyBodyUnchanged(t *testing.T) {
+	server, got := captureServer(t, "ok", "stop")
+	client := NewClient(Options{BaseURL: server.URL, Model: "m"})
+
+	if _, _, err := client.Analyze(context.Background(), "nginx", "sys", "usr"); err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	if len(*got) != 4 {
+		t.Errorf("body keys = %v, want exactly model, messages, temperature, max_tokens", *got)
+	}
+	for _, k := range []string{"model", "messages", "temperature", "max_tokens"} {
+		if _, ok := (*got)[k]; !ok {
+			t.Errorf("body missing %q", k)
+		}
+	}
+}
+
+func TestAnalyze_FinishReasonLength(t *testing.T) {
+	server, _ := captureServer(t, "partial", "length")
+	client := NewClient(Options{BaseURL: server.URL, Model: "m"})
+
+	_, _, err := client.Analyze(context.Background(), "nginx", "sys", "usr")
+
+	if !errors.Is(err, ErrIncompleteAnswer) {
+		t.Fatalf("err = %v, want ErrIncompleteAnswer", err)
+	}
+	var inc *IncompleteAnswerError
+	if !errors.As(err, &inc) {
+		t.Fatalf("errors.As failed for %v", err)
+	}
+	if inc.Reason != "finish_reason=length" || inc.Limit != 4000 ||
+		inc.LimitKey != "llm.max_answer_tokens" || inc.Container != "nginx" {
+		t.Errorf("unexpected error fields: %+v", inc)
+	}
+	if !strings.Contains(err.Error(), "raise llm.max_answer_tokens") || !strings.Contains(err.Error(), "llm.extra_body") {
+		t.Errorf("message lacks hints: %v", err)
+	}
+}
+
+func TestSummarizeChunk_EmptyAnswer(t *testing.T) {
+	server, _ := captureServer(t, "  \n", "stop")
+	client := NewClient(Options{BaseURL: server.URL, Model: "m"})
+
+	_, err := client.SummarizeChunk(context.Background(), "nginx", "sys", "usr")
+
+	var inc *IncompleteAnswerError
+	if !errors.As(err, &inc) {
+		t.Fatalf("err = %v, want IncompleteAnswerError", err)
+	}
+	if inc.Reason != "empty answer" || inc.LimitKey != "llm.max_chunk_summary_tokens" || inc.Limit != 2000 {
+		t.Errorf("unexpected error fields: %+v", inc)
+	}
+}
+
+func TestAnalyze_EmptyFinishReasonIsOK(t *testing.T) {
+	server, _ := captureServer(t, "fine", "")
+	client := NewClient(Options{BaseURL: server.URL, Model: "m"})
+
+	out, _, err := client.Analyze(context.Background(), "nginx", "sys", "usr")
+
+	if err != nil || out != "fine" {
+		t.Errorf("got (%q, %v), want (fine, nil)", out, err)
+	}
+}
+
+func TestAnalyze_IncompleteWithoutLogger(t *testing.T) {
+	server, _ := captureServer(t, "partial", "length")
+	client := NewClient(Options{BaseURL: server.URL, Model: "m"})
+
+	_, _, err := client.Analyze(context.Background(), "nginx", "sys", "usr")
+
+	if !errors.Is(err, ErrIncompleteAnswer) {
+		t.Errorf("err = %v, want ErrIncompleteAnswer", err)
+	}
+}
+
+func TestAnalyze_IncompleteStillLogged(t *testing.T) {
+	server, _ := captureServer(t, "partial", "length")
+	dir := t.TempDir()
+	client := NewClient(Options{BaseURL: server.URL, Model: "m", ExtraBody: map[string]any{
+		"provider": map[string]any{"zdr": true},
+	}})
+	client.SetLogger(llmlogger.NewLogger(dir, true))
+
+	_, _, err := client.Analyze(context.Background(), "nginx", "sys", "usr")
+	if !errors.Is(err, ErrIncompleteAnswer) {
+		t.Fatalf("err = %v, want ErrIncompleteAnswer", err)
+	}
+
+	files, globErr := filepath.Glob(filepath.Join(dir, "nginx", "*.md"))
+	if globErr != nil || len(files) != 1 {
+		t.Fatalf("log files = %v (err %v), want exactly one", files, globErr)
+	}
+	data, readErr := os.ReadFile(files[0])
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, want := range []string{"finish_reason", "zdr"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("log lacks %q", want)
+		}
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/zorak1103/dlia/internal/llmlogger"
@@ -21,7 +22,7 @@ type Client interface {
 	//
 	// Example usage:
 	//
-	//	client := llm.NewClient("https://api.openai.com/v1", "sk-...", "gpt-4")
+	//	client := llm.NewClient(llm.Options{BaseURL: "https://api.openai.com/v1", APIKey: "sk-...", Model: "gpt-4"})
 	//	messages := []llm.ChatMessage{
 	//	    {Role: "system", Content: "You are a helpful assistant analyzing Docker logs."},
 	//	    {Role: "user", Content: "Analyze these error logs: [ERROR] Connection failed"},
@@ -39,7 +40,7 @@ type Client interface {
 	//
 	// Example usage:
 	//
-	//	client := llm.NewClient("https://api.openai.com/v1", "sk-...", "gpt-4")
+	//	client := llm.NewClient(llm.Options{BaseURL: "https://api.openai.com/v1", APIKey: "sk-...", Model: "gpt-4"})
 	//	systemPrompt := "Analyze Docker container logs for errors and patterns."
 	//	userPrompt := "Container: nginx-web\nLogs:\n[ERROR] 502 Bad Gateway\n[WARN] Upstream timeout"
 	//	analysis, usage, err := client.Analyze(ctx, "nginx-web", systemPrompt, userPrompt)
@@ -55,7 +56,7 @@ type Client interface {
 	//
 	// Example usage:
 	//
-	//	client := llm.NewClient("https://api.openai.com/v1", "sk-...", "gpt-4")
+	//	client := llm.NewClient(llm.Options{BaseURL: "https://api.openai.com/v1", APIKey: "sk-...", Model: "gpt-4"})
 	//	systemPrompt := "Summarize Docker log chunks concisely, preserving critical errors."
 	//	chunkPrompt := "Chunk 1/5:\n[INFO] Service started\n[ERROR] Database connection timeout"
 	//	summary, err := client.SummarizeChunk(ctx, "postgres-db", systemPrompt, chunkPrompt)
@@ -69,28 +70,78 @@ type Client interface {
 	SetLogger(logger *llmlogger.Logger)
 }
 
+// Default answer limits applied when Options leaves them unset.
+const (
+	defaultMaxAnswerTokens       = 4000
+	defaultMaxChunkSummaryTokens = 2000
+	analysisTemperature          = 0.3
+)
+
+// Options configures an LLM client.
+type Options struct {
+	BaseURL, APIKey, Model string
+	// MaxAnswerTokens caps Analyze answers (default 4000).
+	MaxAnswerTokens int
+	// MaxChunkSummaryTokens caps SummarizeChunk answers (default 2000).
+	MaxChunkSummaryTokens int
+	// ExtraBody holds additional top-level request fields merged into every request.
+	ExtraBody map[string]any
+}
+
 // clientImpl represents an LLM API client implementation
 type clientImpl struct {
-	baseURL    string
-	apiKey     string
-	model      string
-	httpClient *http.Client
-	logger     *llmlogger.Logger
+	baseURL               string
+	apiKey                string
+	model                 string
+	maxAnswerTokens       int
+	maxChunkSummaryTokens int
+	extraBody             map[string]any
+	httpClient            *http.Client
+	logger                *llmlogger.Logger
 }
 
 // Compile-time verification that clientImpl implements Client
 var _ Client = (*clientImpl)(nil)
 
-// NewClient connects to an OpenAI-compatible API at baseURL using the specified model.
-func NewClient(baseURL, apiKey, model string) Client {
+// NewClient connects to an OpenAI-compatible API described by opts.
+// Non-positive answer limits fall back to their defaults.
+func NewClient(opts Options) Client {
+	if opts.MaxAnswerTokens <= 0 {
+		opts.MaxAnswerTokens = defaultMaxAnswerTokens
+	}
+	if opts.MaxChunkSummaryTokens <= 0 {
+		opts.MaxChunkSummaryTokens = defaultMaxChunkSummaryTokens
+	}
 	return &clientImpl{
-		baseURL: baseURL,
-		apiKey:  apiKey,
-		model:   model,
+		baseURL:               opts.BaseURL,
+		apiKey:                opts.APIKey,
+		model:                 opts.Model,
+		maxAnswerTokens:       opts.MaxAnswerTokens,
+		maxChunkSummaryTokens: opts.MaxChunkSummaryTokens,
+		extraBody:             opts.ExtraBody,
 		httpClient: &http.Client{
 			Timeout: 120 * time.Second, // 2 minutes for long responses
 		},
 	}
+}
+
+// buildBody assembles the request body: the standard fields plus ExtraBody.
+// temperature 0 and maxTokens <= 0 are omitted.
+func (c *clientImpl) buildBody(messages []ChatMessage, temperature float64, maxTokens int) map[string]any {
+	body := map[string]any{
+		"model":    c.model,
+		"messages": messages,
+	}
+	if temperature != 0 {
+		body["temperature"] = temperature
+	}
+	if maxTokens > 0 {
+		body["max_tokens"] = maxTokens
+	}
+	for k, v := range c.extraBody {
+		body[k] = v
+	}
+	return body
 }
 
 func (c *clientImpl) SetLogger(logger *llmlogger.Logger) {
@@ -154,14 +205,7 @@ func (c *clientImpl) executeRequest(httpReq *http.Request) retryResult {
 }
 
 func (c *clientImpl) ChatCompletion(ctx context.Context, messages []ChatMessage, temperature float64, maxTokens int) (*ChatResponse, error) {
-	req := ChatRequest{
-		Model:       c.model,
-		Messages:    messages,
-		Temperature: temperature,
-		MaxTokens:   maxTokens,
-	}
-
-	body, err := json.Marshal(req)
+	body, err := json.Marshal(c.buildBody(messages, temperature, maxTokens))
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal chat completion request for model %s: %w", c.model, err)
 	}
@@ -203,67 +247,49 @@ func (c *clientImpl) ChatCompletion(ctx context.Context, messages []ChatMessage,
 }
 
 func (c *clientImpl) Analyze(ctx context.Context, containerName, systemPrompt, userPrompt string) (string, *TokenUsage, error) {
+	return c.complete(ctx, containerName, systemPrompt, userPrompt, c.maxAnswerTokens, "llm.max_answer_tokens")
+}
+
+func (c *clientImpl) SummarizeChunk(ctx context.Context, containerName, systemPrompt, chunkPrompt string) (string, error) {
+	content, _, err := c.complete(ctx, containerName, systemPrompt, chunkPrompt, c.maxChunkSummaryTokens, "llm.max_chunk_summary_tokens")
+	return content, err
+}
+
+// complete runs one system+user chat completion, logs the interaction (also
+// for incomplete answers) and rejects truncated or empty answers.
+func (c *clientImpl) complete(ctx context.Context, container, system, user string, limit int, limitKey string) (string, *TokenUsage, error) {
 	messages := []ChatMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPrompt},
+		{Role: "system", Content: system},
+		{Role: "user", Content: user},
 	}
 
-	req := ChatRequest{
-		Model:       c.model,
-		Messages:    messages,
-		Temperature: 0.3,
-		MaxTokens:   4000,
-	}
-
-	resp, err := c.ChatCompletion(ctx, req.Messages, req.Temperature, req.MaxTokens)
+	resp, err := c.ChatCompletion(ctx, messages, analysisTemperature, limit)
 	if err != nil {
 		return "", nil, err
 	}
 
 	if len(resp.Choices) == 0 {
-		return "", nil, fmt.Errorf("no choices in response for container %s from model %s", containerName, c.model)
+		return "", nil, fmt.Errorf("no choices in response for container %s from model %s", container, c.model)
 	}
 
-	// Log the interaction if logger is configured
 	if c.logger != nil {
-		if logErr := c.logger.LogInteraction(containerName, userPrompt, req, resp); logErr != nil {
-			// Log error but don't fail the analysis
+		if logErr := c.logger.LogInteraction(container, user, c.buildBody(messages, analysisTemperature, limit), resp); logErr != nil {
+			// Log error but don't fail the call
 			fmt.Printf("Warning: failed to log LLM interaction: %v\n", logErr)
 		}
 	}
 
-	return resp.Choices[0].Message.Content, &resp.Usage, nil
-}
-
-func (c *clientImpl) SummarizeChunk(ctx context.Context, containerName, systemPrompt, chunkPrompt string) (string, error) {
-	messages := []ChatMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: chunkPrompt},
+	choice := resp.Choices[0]
+	reason := ""
+	switch {
+	case choice.FinishReason == "length":
+		reason = "finish_reason=length"
+	case strings.TrimSpace(choice.Message.Content) == "":
+		reason = "empty answer"
+	}
+	if reason != "" {
+		return "", nil, &IncompleteAnswerError{Container: container, Reason: reason, Limit: limit, LimitKey: limitKey}
 	}
 
-	req := ChatRequest{
-		Model:       c.model,
-		Messages:    messages,
-		Temperature: 0.3,
-		MaxTokens:   2000,
-	}
-
-	resp, err := c.ChatCompletion(ctx, req.Messages, req.Temperature, req.MaxTokens)
-	if err != nil {
-		return "", err
-	}
-
-	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("no choices in response for container %s from model %s", containerName, c.model)
-	}
-
-	// Log the interaction if logger is configured
-	if c.logger != nil {
-		if logErr := c.logger.LogInteraction(containerName, chunkPrompt, req, resp); logErr != nil {
-			// Log error but don't fail the summarization
-			fmt.Printf("Warning: failed to log LLM interaction: %v\n", logErr)
-		}
-	}
-
-	return resp.Choices[0].Message.Content, nil
+	return choice.Message.Content, &resp.Usage, nil
 }

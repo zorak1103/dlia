@@ -113,6 +113,7 @@ type fakeScanLLM struct {
 	analysis  string
 	failAfter int
 	failAll   bool
+	failErr   error
 	calls     int
 
 	systemPrompts []string
@@ -123,6 +124,9 @@ func (f *fakeScanLLM) Analyze(_ context.Context, _, system, user string) (string
 	f.calls++
 	f.systemPrompts = append(f.systemPrompts, system)
 	f.userPrompts = append(f.userPrompts, user)
+	if f.failErr != nil {
+		return "", nil, f.failErr
+	}
 	if f.failAll {
 		return "", nil, errors.New("llm exploded")
 	}
@@ -147,7 +151,7 @@ func (f *fakeScanLLM) SetLogger(_ *llmlogger.Logger) {}
 func withScanLLMMock(t *testing.T, fake *fakeScanLLM) {
 	t.Helper()
 	original := newLLMClient
-	newLLMClient = func(string, string, string) llm.Client { return fake }
+	newLLMClient = func(llm.Options) llm.Client { return fake }
 	t.Cleanup(func() { newLLMClient = original })
 }
 
@@ -783,4 +787,51 @@ func TestRunScan_MixedFailure_CountsInSend(t *testing.T) {
 	assert.Equal(t, 1, fn.sends)
 	assert.Equal(t, 2, fn.lastCount)
 	assert.Equal(t, []string{container2.Name}, fn.lastFailed)
+}
+
+func TestLLMOptions_FromConfig(t *testing.T) {
+	c := &config.Config{LLM: config.LLMConfig{
+		BaseURL:               "http://x/v1",
+		APIKey:                "k",
+		Model:                 "m",
+		MaxAnswerTokens:       6000,
+		MaxChunkSummaryTokens: 3000,
+		ExtraBody:             map[string]any{"provider": map[string]any{"zdr": true}},
+	}}
+
+	got := llmOptions(c)
+
+	assert.Equal(t, llm.Options{
+		BaseURL:               "http://x/v1",
+		APIKey:                "k",
+		Model:                 "m",
+		MaxAnswerTokens:       6000,
+		MaxChunkSummaryTokens: 3000,
+		ExtraBody:             map[string]any{"provider": map[string]any{"zdr": true}},
+	}, got)
+}
+
+func TestRunScan_IncompleteAnswer_CountedAsFailed(t *testing.T) {
+	env := setupScanRunTest(t)
+	cfg.Notification.Enabled = true
+	fn := &fakeNotifier{enabled: true}
+	withFakeNotifier(t, fn)
+	withScanDockerMock(t, &MockDockerClient{
+		containers: []docker.Container{scanContainer()},
+		logs:       map[string][]docker.LogEntry{scanContainer().ID: scanLogs},
+	}, nil)
+	withScanLLMMock(t, &fakeScanLLM{failErr: &llm.IncompleteAnswerError{
+		Container: scanContainer().Name,
+		Reason:    "finish_reason=length",
+		Limit:     4000,
+		LimitKey:  "llm.max_answer_tokens",
+	}})
+
+	err := runScan(newScanRunCmd(), []string{})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{scanContainer().Name}, fn.lastFailed)
+	data, readErr := os.ReadFile(filepath.Join(env.kbDir, "global_summary.md"))
+	require.NoError(t, readErr)
+	assert.Contains(t, string(data), severity.FailedLabel)
 }
