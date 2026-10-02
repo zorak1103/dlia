@@ -15,11 +15,6 @@ import (
 	"github.com/zorak1103/dlia/internal/sanitize"
 )
 
-const (
-	statusHealthy        = "🟢 Healthy"
-	statusIssuesDetected = "🔴 Issues Detected"
-)
-
 // UpdateServiceKB appends analysis results to the container's knowledge base file.
 func UpdateServiceKB(containerName string, analysis *chunking.AnalyzeResult, cfg *config.Config) error {
 	kbDir := filepath.Join(cfg.Output.KnowledgeBaseDir, "services")
@@ -29,20 +24,10 @@ func UpdateServiceKB(containerName string, analysis *chunking.AnalyzeResult, cfg
 
 	filePath := pathologize.Join(kbDir, sanitize.Name(containerName)+".md")
 
-	// Determine status based on analysis content (simple heuristic)
-	status := statusHealthy
-	if strings.Contains(strings.ToLower(analysis.Analysis), "critical") ||
-		strings.Contains(strings.ToLower(analysis.Analysis), "error") {
-		status = statusIssuesDetected
-	} else if strings.Contains(strings.ToLower(analysis.Analysis), "warning") {
-		status = "🟡 Warnings"
-	}
-
 	timestamp := time.Now().Format(time.RFC3339)
 
-	// Prepare new entry
 	newEntry := fmt.Sprintf("\n### Scan: %s\n", timestamp)
-	newEntry += fmt.Sprintf("**Status:** %s\n\n", status)
+	newEntry += fmt.Sprintf("**Status:** %s\n\n", analysis.Severity.Badge())
 	newEntry += analysis.Analysis + "\n\n"
 	newEntry += "---\n"
 
@@ -158,4 +143,26 @@ func isEntryExpired(entry string, cutoff time.Time) bool {
 	}
 
 	return boundaries[0].timestamp.Before(cutoff)
+}
+
+// extractSummary extracts a brief summary from the analysis text.
+func extractSummary(analysis string) string {
+	// strings.Split never returns an empty slice, so lines[0] always exists.
+	lines := strings.Split(analysis, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "**Summary**") {
+			return strings.TrimSpace(strings.Replace(line, "**Summary**:", "", 1))
+		}
+	}
+
+	return truncate(lines[0], 50)
+}
+
+// truncate shortens a string to maxLen characters, adding ellipsis if truncated.
+func truncate(s string, maxLen int) string {
+	if len(s) > maxLen {
+		return s[:maxLen] + "..."
+	}
+
+	return s
 }

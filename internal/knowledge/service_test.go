@@ -11,6 +11,7 @@ import (
 	"github.com/zorak1103/dlia/internal/chunking"
 	"github.com/zorak1103/dlia/internal/config"
 	"github.com/zorak1103/dlia/internal/sanitize"
+	"github.com/zorak1103/dlia/internal/severity"
 )
 
 func TestUpdateServiceKB(t *testing.T) {
@@ -27,7 +28,7 @@ func TestUpdateServiceKB(t *testing.T) {
 			analysis: &chunking.AnalyzeResult{
 				Analysis: "All systems running normally. No issues detected.",
 			},
-			wantStatus: "🟢 Healthy",
+			wantStatus: "🟢 OK",
 			wantErr:    false,
 		},
 		{
@@ -35,8 +36,9 @@ func TestUpdateServiceKB(t *testing.T) {
 			containerName: "test-container",
 			analysis: &chunking.AnalyzeResult{
 				Analysis: "Critical database connection error detected.",
+				Severity: severity.Critical,
 			},
-			wantStatus: "🔴 Issues Detected",
+			wantStatus: "🔴 Critical",
 			wantErr:    false,
 		},
 		{
@@ -44,8 +46,9 @@ func TestUpdateServiceKB(t *testing.T) {
 			containerName: "test-container",
 			analysis: &chunking.AnalyzeResult{
 				Analysis: "Multiple error messages found in logs.",
+				Severity: severity.Critical,
 			},
-			wantStatus: "🔴 Issues Detected",
+			wantStatus: "🔴 Critical",
 			wantErr:    false,
 		},
 		{
@@ -53,8 +56,9 @@ func TestUpdateServiceKB(t *testing.T) {
 			containerName: "test-container",
 			analysis: &chunking.AnalyzeResult{
 				Analysis: "Warning: Memory usage is high.",
+				Severity: severity.Warning,
 			},
-			wantStatus: "🟡 Warnings",
+			wantStatus: "🟡 Warning",
 			wantErr:    false,
 		},
 		{
@@ -63,7 +67,7 @@ func TestUpdateServiceKB(t *testing.T) {
 			analysis: &chunking.AnalyzeResult{
 				Analysis: "Normal operation.",
 			},
-			wantStatus: "🟢 Healthy",
+			wantStatus: "🟢 OK",
 			wantErr:    false,
 		},
 	}
@@ -452,96 +456,9 @@ func TestUpdateServiceKB_DefusesReservedContainerName(t *testing.T) {
 	}
 }
 
-func TestUpdateServiceKB_StatusDetection(t *testing.T) {
-	tests := []struct {
-		name       string
-		analysis   string
-		wantStatus string
-	}{
-		{
-			name:       "critical lowercase",
-			analysis:   "critical failure detected",
-			wantStatus: "🔴 Issues Detected",
-		},
-		{
-			name:       "critical uppercase",
-			analysis:   "CRITICAL system failure",
-			wantStatus: "🔴 Issues Detected",
-		},
-		{
-			name:       "error lowercase",
-			analysis:   "connection error occurred",
-			wantStatus: "🔴 Issues Detected",
-		},
-		{
-			name:       "error uppercase",
-			analysis:   "ERROR: Unable to connect",
-			wantStatus: "🔴 Issues Detected",
-		},
-		{
-			name:       "warning lowercase",
-			analysis:   "warning: high memory usage",
-			wantStatus: "🟡 Warnings",
-		},
-		{
-			name:       "warning uppercase",
-			analysis:   "WARNING: Disk space low",
-			wantStatus: "🟡 Warnings",
-		},
-		{
-			name:       "healthy - no keywords",
-			analysis:   "All systems operational",
-			wantStatus: "🟢 Healthy",
-		},
-		{
-			name:       "healthy - info only",
-			analysis:   "Service started successfully",
-			wantStatus: "🟢 Healthy",
-		},
-		{
-			name:       "critical takes precedence over warning",
-			analysis:   "Critical error detected. Warning: this is serious.",
-			wantStatus: "🔴 Issues Detected",
-		},
-		{
-			name:       "error takes precedence over warning",
-			analysis:   "Error in processing. Warning: check logs.",
-			wantStatus: "🔴 Issues Detected",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tmpDir := t.TempDir()
-			cfg := &config.Config{
-				Output: config.OutputConfig{
-					KnowledgeBaseDir:       tmpDir,
-					KnowledgeRetentionDays: 30,
-				},
-			}
-
-			analysis := &chunking.AnalyzeResult{
-				Analysis: tt.analysis,
-			}
-
-			err := UpdateServiceKB("test", analysis, cfg)
-			if err != nil {
-				t.Fatalf("UpdateServiceKB() error = %v", err)
-			}
-
-			filePath := filepath.Join(tmpDir, "services", "test.md")
-			// #nosec G304 - reading from controlled test temp directory
-			content, err := os.ReadFile(filePath)
-			if err != nil {
-				t.Fatalf("Failed to read KB file: %v", err)
-			}
-
-			if !strings.Contains(string(content), tt.wantStatus) {
-				t.Errorf("Expected status %q not found in content", tt.wantStatus)
-			}
-		})
-	}
-}
+// TestUpdateServiceKB_StatusDetection removed: status now derives from
+// analysis.Severity.Badge(), not keyword heuristics.
+// Covered by TestUpdateServiceKB_StatusFromSeverity.
 
 func TestPruneEntries_EdgeCases(t *testing.T) {
 	t.Run("no separator between entries", func(t *testing.T) {
@@ -681,20 +598,13 @@ func TestUpdateGlobalSummary(t *testing.T) {
 		},
 	}
 
-	results := map[string]*chunking.AnalyzeResult{
-		"service1": {
-			Analysis: "All systems operational. No issues detected.",
-		},
-		"service2": {
-			Analysis: "Critical database error detected.",
-		},
-		"service3": {
-			Analysis: "Warning: Memory usage is high.",
-		},
+	outcomes := map[string]ServiceOutcome{
+		"service1": {Result: &chunking.AnalyzeResult{Analysis: "All systems operational.", Severity: severity.OK}},
+		"service2": {Result: &chunking.AnalyzeResult{Analysis: "Database error.", Severity: severity.Critical}},
+		"service3": {Result: &chunking.AnalyzeResult{Analysis: "Memory pressure.", Severity: severity.Warning}},
 	}
 
-	err := UpdateGlobalSummary(results, cfg)
-	if err != nil {
+	if err := UpdateGlobalSummary(outcomes, cfg); err != nil {
 		t.Fatalf("UpdateGlobalSummary() error = %v", err)
 	}
 
@@ -708,7 +618,6 @@ func TestUpdateGlobalSummary(t *testing.T) {
 
 	contentStr := string(content)
 
-	// Check for expected content
 	expectedStrings := []string{
 		"# 🌍 Global System Summary",
 		"**Last Updated:**",
@@ -717,7 +626,7 @@ func TestUpdateGlobalSummary(t *testing.T) {
 		"service1",
 		"service2",
 		"service3",
-		"Recent Critical Issues",
+		"Services Needing Attention",
 	}
 
 	for _, expected := range expectedStrings {
@@ -726,14 +635,9 @@ func TestUpdateGlobalSummary(t *testing.T) {
 		}
 	}
 
-	// Verify issues are reported
-	if !strings.Contains(contentStr, "Service(s) Reporting Issues") {
-		t.Error("Expected issues to be reported in global summary")
-	}
-
-	// Verify critical section includes service2
-	if !strings.Contains(contentStr, "### service2") {
-		t.Error("Expected service2 in critical issues section")
+	// Verify attention count (critical + warning = 2)
+	if !strings.Contains(contentStr, "Service(s) Need Attention") {
+		t.Error("Expected need-attention count in global summary")
 	}
 }
 
@@ -745,17 +649,12 @@ func TestUpdateGlobalSummary_NoIssues(t *testing.T) {
 		},
 	}
 
-	results := map[string]*chunking.AnalyzeResult{
-		"service1": {
-			Analysis: "All systems operational.",
-		},
-		"service2": {
-			Analysis: "Running normally.",
-		},
+	outcomes := map[string]ServiceOutcome{
+		"service1": {Result: &chunking.AnalyzeResult{Analysis: "All systems operational.", Severity: severity.OK}},
+		"service2": {Result: &chunking.AnalyzeResult{Analysis: "Running normally.", Severity: severity.OK}},
 	}
 
-	err := UpdateGlobalSummary(results, cfg)
-	if err != nil {
+	if err := UpdateGlobalSummary(outcomes, cfg); err != nil {
 		t.Fatalf("UpdateGlobalSummary() error = %v", err)
 	}
 
@@ -768,14 +667,12 @@ func TestUpdateGlobalSummary_NoIssues(t *testing.T) {
 
 	contentStr := string(content)
 
-	// Verify healthy status
 	if !strings.Contains(contentStr, "🟢 All Systems Operational") {
 		t.Error("Expected all systems operational status")
 	}
 
-	// Verify no critical issues
-	if !strings.Contains(contentStr, "No critical issues reported") {
-		t.Error("Expected no critical issues message")
+	if !strings.Contains(contentStr, "*No services need attention.*") {
+		t.Error("Expected no services need attention message")
 	}
 }
 
@@ -787,10 +684,9 @@ func TestUpdateGlobalSummary_EmptyResults(t *testing.T) {
 		},
 	}
 
-	results := map[string]*chunking.AnalyzeResult{}
+	outcomes := map[string]ServiceOutcome{}
 
-	err := UpdateGlobalSummary(results, cfg)
-	if err != nil {
+	if err := UpdateGlobalSummary(outcomes, cfg); err != nil {
 		t.Fatalf("UpdateGlobalSummary() error = %v", err)
 	}
 
@@ -803,100 +699,12 @@ func TestUpdateGlobalSummary_EmptyResults(t *testing.T) {
 
 	contentStr := string(content)
 
-	// Should still have structure
 	if !strings.Contains(contentStr, "# 🌍 Global System Summary") {
 		t.Error("Expected global summary header")
 	}
 
-	// Should show healthy with no services
 	if !strings.Contains(contentStr, "🟢 All Systems Operational") {
 		t.Error("Expected operational status for empty results")
-	}
-}
-
-func TestHasIssues(t *testing.T) {
-	tests := []struct {
-		name     string
-		analysis string
-		want     bool
-	}{
-		{
-			name:     "critical lowercase",
-			analysis: "critical failure",
-			want:     true,
-		},
-		{
-			name:     "critical uppercase",
-			analysis: "CRITICAL ERROR",
-			want:     true,
-		},
-		{
-			name:     "error lowercase",
-			analysis: "error occurred",
-			want:     true,
-		},
-		{
-			name:     "error uppercase",
-			analysis: "ERROR detected",
-			want:     true,
-		},
-		{
-			name:     "no issues",
-			analysis: "All systems operational",
-			want:     false,
-		},
-		{
-			name:     "warning only",
-			analysis: "Warning: high memory",
-			want:     false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := hasIssues(tt.analysis)
-			if got != tt.want {
-				t.Errorf("hasIssues() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestHasWarnings(t *testing.T) {
-	tests := []struct {
-		name     string
-		analysis string
-		want     bool
-	}{
-		{
-			name:     "warning lowercase",
-			analysis: "warning detected",
-			want:     true,
-		},
-		{
-			name:     "warning uppercase",
-			analysis: "WARNING: high usage",
-			want:     true,
-		},
-		{
-			name:     "no warnings",
-			analysis: "All systems operational",
-			want:     false,
-		},
-		{
-			name:     "error but no warning",
-			analysis: "Error occurred",
-			want:     false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := hasWarnings(tt.analysis)
-			if got != tt.want {
-				t.Errorf("hasWarnings() = %v, want %v", got, tt.want)
-			}
-		})
 	}
 }
 
@@ -939,56 +747,6 @@ Additional details here`,
 			got := extractSummary(tt.analysis)
 			if got != tt.want {
 				t.Errorf("extractSummary() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestExtractErrors(t *testing.T) {
-	tests := []struct {
-		name     string
-		analysis string
-		want     string
-	}{
-		{
-			name: "with errors section",
-			analysis: `Some preamble
-**Errors**
-- Error 1
-- Error 2
-**Warnings**
-- Warning 1`,
-			want: "**Errors**\n- Error 1\n- Error 2",
-		},
-		{
-			name: "errors without warnings",
-			analysis: `**Errors**
-- Critical error
-Some other text`,
-			want: "**Errors**\n- Critical error\nSome other text",
-		},
-		{
-			// The errors marker must not sit at index 0 here: the no-warnings
-			// fallback computes `end = len(analysis) - start`, and an offset
-			// start is what distinguishes that subtraction from addition.
-			name: "errors without warnings, marker not at start",
-			analysis: `Preamble text
-**Errors**
-- Error A`,
-			want: "**Errors**\n- Error A",
-		},
-		{
-			name:     "no errors section",
-			analysis: "No errors marker found",
-			want:     "Issues detected but could not parse specific errors.",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := extractErrors(tt.analysis)
-			if !strings.Contains(got, strings.TrimSpace(tt.want)) {
-				t.Errorf("extractErrors() = %v, want to contain %v", got, tt.want)
 			}
 		})
 	}
@@ -1051,14 +809,13 @@ func TestUpdateGlobalSummary_TableFormat(t *testing.T) {
 		},
 	}
 
-	results := map[string]*chunking.AnalyzeResult{
-		"alpha": {Analysis: "OK"},
-		"beta":  {Analysis: "Error found"},
-		"gamma": {Analysis: "Warning detected"},
+	outcomes := map[string]ServiceOutcome{
+		"alpha": {Result: &chunking.AnalyzeResult{Analysis: "OK", Severity: severity.OK}},
+		"beta":  {Result: &chunking.AnalyzeResult{Analysis: "Error found", Severity: severity.Critical}},
+		"gamma": {Result: &chunking.AnalyzeResult{Analysis: "Warning detected", Severity: severity.Warning}},
 	}
 
-	err := UpdateGlobalSummary(results, cfg)
-	if err != nil {
+	if err := UpdateGlobalSummary(outcomes, cfg); err != nil {
 		t.Fatalf("UpdateGlobalSummary() error = %v", err)
 	}
 
@@ -1094,15 +851,15 @@ func TestUpdateGlobalSummary_TableFormat(t *testing.T) {
 		t.Error("Expected services in alphabetical order")
 	}
 
-	// Verify status icons
+	// Verify status badges
 	if !strings.Contains(contentStr, "🟢 OK") {
-		t.Error("Expected OK status")
+		t.Error("Expected OK badge")
 	}
-	if !strings.Contains(contentStr, "🔴 Issues") {
-		t.Error("Expected Issues status")
+	if !strings.Contains(contentStr, "🔴 Critical") {
+		t.Error("Expected Critical badge")
 	}
 	if !strings.Contains(contentStr, "🟡 Warning") {
-		t.Error("Expected Warning status")
+		t.Error("Expected Warning badge")
 	}
 }
 
@@ -1118,11 +875,11 @@ func TestUpdateGlobalSummary_CreateDirectory(t *testing.T) {
 		},
 	}
 
-	results := map[string]*chunking.AnalyzeResult{
-		"test": {Analysis: "OK"},
+	outcomes := map[string]ServiceOutcome{
+		"test": {Result: &chunking.AnalyzeResult{Analysis: "OK", Severity: severity.OK}},
 	}
 
-	err := UpdateGlobalSummary(results, cfg)
+	err := UpdateGlobalSummary(outcomes, cfg)
 	if err != nil {
 		t.Fatalf("UpdateGlobalSummary() error = %v", err)
 	}
@@ -1148,16 +905,19 @@ func BenchmarkUpdateGlobalSummary(b *testing.B) {
 	}
 
 	// Create 50 services
-	results := make(map[string]*chunking.AnalyzeResult, 50)
+	outcomes := make(map[string]ServiceOutcome, 50)
 	for i := 0; i < 50; i++ {
-		results[fmt.Sprintf("service%d", i)] = &chunking.AnalyzeResult{
-			Analysis: fmt.Sprintf("Analysis for service %d", i),
+		outcomes[fmt.Sprintf("service%d", i)] = ServiceOutcome{
+			Result: &chunking.AnalyzeResult{
+				Analysis: fmt.Sprintf("Analysis for service %d", i),
+				Severity: severity.OK,
+			},
 		}
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = UpdateGlobalSummary(results, cfg)
+		_ = UpdateGlobalSummary(outcomes, cfg)
 	}
 }
 
@@ -1340,4 +1100,75 @@ func TestSplitEntries(t *testing.T) {
 			t.Errorf("want 1 entry, got %q", got)
 		}
 	})
+}
+
+func TestUpdateServiceKB_StatusFromSeverity(t *testing.T) {
+	tests := []struct {
+		name      string
+		sev       severity.Level
+		analysis  string
+		wantBadge string
+	}{
+		{
+			name:      "OK badge",
+			sev:       severity.OK,
+			analysis:  "All systems nominal",
+			wantBadge: "🟢 OK",
+		},
+		{
+			name:      "Warning badge",
+			sev:       severity.Warning,
+			analysis:  "Memory pressure detected",
+			wantBadge: "🟡 Warning",
+		},
+		{
+			name:      "Unknown badge",
+			sev:       severity.Unknown,
+			analysis:  "Could not determine status",
+			wantBadge: "🟡 Unknown",
+		},
+		{
+			name:      "Critical badge",
+			sev:       severity.Critical,
+			analysis:  "Database unreachable",
+			wantBadge: "🔴 Critical",
+		},
+		{
+			name:      "OK result with misleading text stays green",
+			sev:       severity.OK,
+			analysis:  "No errors found, critical path fine",
+			wantBadge: "🟢 OK",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			cfg := &config.Config{
+				Output: config.OutputConfig{
+					KnowledgeBaseDir:       tmpDir,
+					KnowledgeRetentionDays: 30,
+				},
+			}
+
+			analysis := &chunking.AnalyzeResult{
+				Analysis: tt.analysis,
+				Severity: tt.sev,
+			}
+
+			if err := UpdateServiceKB("test-svc", analysis, cfg); err != nil {
+				t.Fatalf("UpdateServiceKB() error = %v", err)
+			}
+
+			filePath := filepath.Join(tmpDir, "services", "test-svc.md")
+			data, err := os.ReadFile(filePath) //nolint:gosec
+			if err != nil {
+				t.Fatalf("failed to read KB file: %v", err)
+			}
+
+			if !strings.Contains(string(data), "**Status:** "+tt.wantBadge) {
+				t.Errorf("expected status %q not found in:\n%s", tt.wantBadge, data)
+			}
+		})
+	}
 }
