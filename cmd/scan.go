@@ -277,6 +277,9 @@ func processSingleContainer(ctx context.Context, dockerClient docker.Client, st 
 	logs, err := processContainerLogs(ctx, dockerClient, container.ID, since)
 	if err != nil {
 		fmt.Printf("        ⚠️  %v\n", err)
+		recordFailure(st, container, since, scanCfg, lookbackDuration, stats)
+		stats.scannedContainers++
+		fmt.Println()
 		return nil
 	}
 
@@ -317,9 +320,7 @@ func processSingleContainer(ctx context.Context, dockerClient docker.Client, st 
 	case scanCfg.dryRun:
 		updateContainerState(st, container, logs, scanCfg, lookbackDuration)
 	default:
-		keepWindowOnFailure(st, container, since, scanCfg, lookbackDuration)
-		stats.failedContainers++
-		stats.failedNames = append(stats.failedNames, container.Name)
+		recordFailure(st, container, since, scanCfg, lookbackDuration, stats)
 	}
 
 	stats.scannedContainers++
@@ -358,6 +359,17 @@ func keepWindowOnFailure(st *state.State, container docker.Container, since time
 	}
 	if _, exists := st.GetLastScan(container.ID); !exists {
 		st.UpdateContainer(container.ID, container.Name, since, "")
+	}
+}
+
+// recordFailure keeps the scan window for a container whose log read or
+// analysis failed and counts it. Dry runs are not counted as failed.
+func recordFailure(st *state.State, container docker.Container, since time.Time,
+	scanCfg *scanConfig, lookbackDuration time.Duration, stats *scanStats) {
+	keepWindowOnFailure(st, container, since, scanCfg, lookbackDuration)
+	if !scanCfg.dryRun {
+		stats.failedContainers++
+		stats.failedNames = append(stats.failedNames, container.Name)
 	}
 }
 

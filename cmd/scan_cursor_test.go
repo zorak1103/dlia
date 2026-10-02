@@ -59,6 +59,46 @@ func TestProcessContainers_FirstScanFailureDryRunNoCursor(t *testing.T) {
 	}
 }
 
+func TestProcessContainers_ReadError_FirstScanKeepsWindow(t *testing.T) {
+	_, mockDocker, containers, c := retryTestEnv(t, time.Now())
+	st := emptyStateForRetryEnv(t)
+	mockDocker.logsErr = errors.New("logs error")
+	scanCfg := newTestScanConfig()
+	scanCfg.dryRun = false
+
+	before := time.Now()
+	_, stats := processContainers(context.Background(), mockDocker, st, containers, c, scanCfg, 0)
+	after := time.Now()
+
+	got, ok := st.GetLastScan(retryContainerID)
+	if !ok {
+		t.Fatal("Expected a cursor after first-scan read failure")
+	}
+	if got.Before(before.Add(-time.Hour)) || got.After(after.Add(-time.Hour)) {
+		t.Errorf("Cursor = %v, want ~now-1h (between %v and %v)", got, before.Add(-time.Hour), after.Add(-time.Hour))
+	}
+	if stats.failedContainers != 1 {
+		t.Errorf("Expected 1 failed container, got %d", stats.failedContainers)
+	}
+}
+
+func TestProcessContainers_ReadError_DryRunNotCounted(t *testing.T) {
+	_, mockDocker, containers, c := retryTestEnv(t, time.Now())
+	st := emptyStateForRetryEnv(t)
+	mockDocker.logsErr = errors.New("logs error")
+	scanCfg := newTestScanConfig()
+	scanCfg.dryRun = true
+
+	_, stats := processContainers(context.Background(), mockDocker, st, containers, c, scanCfg, 0)
+
+	if _, ok := st.GetLastScan(retryContainerID); ok {
+		t.Error("Dry run must not create a cursor")
+	}
+	if stats.failedContainers != 0 {
+		t.Errorf("Dry-run read failure must not be counted as failed, got %d", stats.failedContainers)
+	}
+}
+
 func TestProcessContainers_ReadErrorNoGapNoStateChange(t *testing.T) {
 	oldCursor := time.Now().Add(-48 * time.Hour)
 	st, mockDocker, containers, c := retryTestEnv(t, oldCursor)
