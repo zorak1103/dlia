@@ -64,6 +64,50 @@ func TestAnalyzeLogs_MasksBeforeLLM_Chunked(t *testing.T) {
 	assert.Contains(t, strings.Join(client.summarizePrompts, "\n"), "token=<SECRET>")
 }
 
+// TestAnalyzeLogs_PlaceholderConsistentAcrossChunks pins that one session masks
+// the whole batch: an IP repeated in a later chunk keeps its placeholder number.
+// The layout forces the second IP to appear first in chunk 1 (as <IP-2> there)
+// and alone in chunk 2 — a fresh session per chunk would renumber it to <IP-1>.
+func TestAnalyzeLogs_PlaceholderConsistentAcrossChunks(t *testing.T) {
+	client := newRecordingClient()
+	tok := NewMockTokenizer(1)
+	loader := prompts.NewPromptLoader(&config.Config{})
+	base, err := loader.AnalysisMessages("c", "", "", 3)
+	require.NoError(t, err)
+	maxTokens := DefaultResponseReserveTokens + tok.EstimateSystemPromptTokens(base.System) + 240 // chunk budget 120
+	p := &Pipeline{
+		tokenizer:       tok,
+		client:          client,
+		maxTokens:       maxTokens,
+		responseReserve: DefaultResponseReserveTokens,
+		promptLoader:    loader,
+	}
+	p.config = privacyConfig(true, true)
+
+	logs := []docker.LogEntry{
+		{Timestamp: "2023-01-01T00:00:00Z", Message: "from 198.51.100.9 to 203.0.113.7"},
+		{Timestamp: "2023-01-01T00:00:01Z", Message: "from 198.51.100.9 again"},
+		{Timestamp: "2023-01-01T00:00:02Z", Message: "from 203.0.113.7 again"},
+	}
+
+	_, err = p.AnalyzeLogs(context.Background(), "c", logs)
+	require.NoError(t, err)
+	require.Greater(t, len(client.summarizePrompts), 1, "test setup must force chunking")
+
+	first := client.summarizePrompts[0]
+	assert.Contains(t, first, "<IP-1>")
+	assert.Contains(t, first, "<IP-2>")
+
+	last := client.summarizePrompts[len(client.summarizePrompts)-1]
+	assert.Contains(t, last, "<IP-2>", "the repeated IP keeps its placeholder in the next chunk")
+	assert.NotContains(t, last, "<IP-1>", "a fresh session per chunk would renumber the repeated IP to <IP-1>")
+
+	for _, prompt := range client.summarizePrompts {
+		assert.NotContains(t, prompt, "198.51.100.")
+		assert.NotContains(t, prompt, "203.0.113.7")
+	}
+}
+
 func TestAnalyzeLogs_DoesNotMutateInput(t *testing.T) {
 	client := newRecordingClient()
 	p := newTestPipeline(t, NewMockTokenizer(1), client, 1_000_000)

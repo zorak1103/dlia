@@ -109,7 +109,7 @@ func TestPromptLoader_SystemPrompt(t *testing.T) {
 	}
 }
 
-func TestPromptLoader_AnalysisPrompt(t *testing.T) {
+func TestPromptLoader_AnalysisPromptRender(t *testing.T) {
 	tests := []struct {
 		name          string
 		containerName string
@@ -158,7 +158,7 @@ func TestPromptLoader_AnalysisPrompt(t *testing.T) {
 	}
 }
 
-func TestPromptLoader_ChunkSummaryPrompt(t *testing.T) {
+func TestPromptLoader_ChunkSummaryPromptRender(t *testing.T) {
 	tests := []struct {
 		name          string
 		containerName string
@@ -210,7 +210,7 @@ func TestPromptLoader_ChunkSummaryPrompt(t *testing.T) {
 	}
 }
 
-func TestPromptLoader_SynthesisPrompt(t *testing.T) {
+func TestPromptLoader_SynthesisPromptRender(t *testing.T) {
 	tests := []struct {
 		name          string
 		containerName string
@@ -266,7 +266,7 @@ func TestPromptLoader_SynthesisPrompt(t *testing.T) {
 	}
 }
 
-func TestPromptLoader_ExecutiveSummaryPrompt(t *testing.T) {
+func TestPromptLoader_ExecutiveSummaryPromptRender(t *testing.T) {
 	tests := []struct {
 		name         string
 		analyses     []ContainerAnalysis
@@ -723,7 +723,7 @@ func TestPromptLoader_ExecutiveSummaryTemplateErrors(t *testing.T) {
 
 // TestPromptLoader_SynthesisPrompt_ChunkNumbering pins the chunk numbering
 // in the combined summaries: chunks are numbered starting at 1.
-func TestPromptLoader_SynthesisPrompt_ChunkNumbering(t *testing.T) {
+func TestPromptLoader_SynthesisPromptRender_ChunkNumbering(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	templatePath := filepath.Join(tmpDir, "synthesis_numbering.md")
@@ -758,7 +758,7 @@ func BenchmarkPromptLoader_SystemPrompt(b *testing.B) {
 	}
 }
 
-func BenchmarkPromptLoader_AnalysisPrompt(b *testing.B) {
+func BenchmarkPromptLoader_AnalysisPromptRender(b *testing.B) {
 	cfg := &config.Config{}
 	loader := NewPromptLoader(cfg)
 

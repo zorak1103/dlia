@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -165,18 +166,31 @@ func setVerbose(t *testing.T) {
 }
 
 // captureStdout redirects os.Stdout into a buffer; the returned func drains it.
+// Draining is idempotent; cleanup restores stdout and closes the pipe even if
+// the test fails before draining.
 func captureStdout(t *testing.T) func() string {
 	t.Helper()
 	original := os.Stdout
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	os.Stdout = w
-	t.Cleanup(func() { os.Stdout = original })
+	t.Cleanup(func() {
+		os.Stdout = original
+		_ = w.Close() // nolint:errcheck // double close is fine
+		_ = r.Close() // nolint:errcheck // already closed after draining
+	})
+	var (
+		once    sync.Once
+		drained string
+	)
 	return func() string {
-		require.NoError(t, w.Close())
-		data, err := io.ReadAll(r)
-		require.NoError(t, err)
-		return string(data)
+		once.Do(func() {
+			require.NoError(t, w.Close())
+			data, readErr := io.ReadAll(r)
+			require.NoError(t, readErr)
+			drained = string(data)
+		})
+		return drained
 	}
 }
 
