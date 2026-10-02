@@ -789,6 +789,30 @@ func TestTruncate(t *testing.T) {
 			maxLen: 0,
 			want:   "...",
 		},
+		{
+			name:   "umlauts truncated",
+			input:  "äöü",
+			maxLen: 2,
+			want:   "äö...",
+		},
+		{
+			name:   "umlauts exact length",
+			input:  "äöü",
+			maxLen: 3,
+			want:   "äöü",
+		},
+		{
+			name:   "emoji truncated",
+			input:  "😀😀",
+			maxLen: 1,
+			want:   "😀...",
+		},
+		{
+			name:   "ascii truncated unchanged",
+			input:  "abcdef",
+			maxLen: 3,
+			want:   "abc...",
+		},
 	}
 
 	for _, tt := range tests {

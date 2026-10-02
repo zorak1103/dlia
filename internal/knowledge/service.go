@@ -160,8 +160,9 @@ func extractSummary(analysis string) string {
 
 // truncate shortens a string to maxLen characters, adding ellipsis if truncated.
 func truncate(s string, maxLen int) string {
-	if len(s) > maxLen {
-		return s[:maxLen] + "..."
+	runes := []rune(s)
+	if len(runes) > maxLen {
+		return string(runes[:maxLen]) + "..."
 	}
 
 	return s
