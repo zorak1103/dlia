@@ -370,8 +370,9 @@ func TestHandleExecutiveSummaryAndNotifications_NoResults(t *testing.T) {
 	}
 }
 
-// TestHandleExecutiveSummaryAndNotifications_LLMInitError tests LLM init error
-func TestHandleExecutiveSummaryAndNotifications_LLMInitError(t *testing.T) {
+// TestHandleExecutiveSummaryAndNotifications_NotifierInitError verifies that
+// an enabled notifier with an invalid config (empty URL) causes an error.
+func TestHandleExecutiveSummaryAndNotifications_NotifierInitError(t *testing.T) {
 	t.Parallel()
 
 	scanCfg := newTestScanConfig()
@@ -384,17 +385,18 @@ func TestHandleExecutiveSummaryAndNotifications_LLMInitError(t *testing.T) {
 
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			APIKey: "", // No API key
+			APIKey: "key",
 		},
 		Notification: config.NotificationConfig{
-			Enabled: true,
+			Enabled:    true,
+			ShoutrrURL: "", // enabled but no URL → notifier init fails
 		},
 	}
 
 	err := handleExecutiveSummaryAndNotifications(ctx, outcomes, cfg, scanCfg)
 
 	if err == nil {
-		t.Error("Expected error when LLM init fails")
+		t.Error("Expected error when notifier init fails")
 	}
 }
 
@@ -576,8 +578,9 @@ func TestUpdateGlobalSummary_VerboseMode(t *testing.T) {
 	}
 }
 
-// TestHandleExecutiveSummaryAndNotifications_VerboseMode tests verbose mode
-func TestHandleExecutiveSummaryAndNotifications_VerboseMode(t *testing.T) {
+// TestHandleExecutiveSummaryAndNotifications_NotifierInitError_Verbose verifies the
+// same notifier-init failure path with verbose mode enabled.
+func TestHandleExecutiveSummaryAndNotifications_NotifierInitError_Verbose(t *testing.T) {
 	t.Parallel()
 
 	scanCfg := newTestScanConfig()
@@ -591,17 +594,18 @@ func TestHandleExecutiveSummaryAndNotifications_VerboseMode(t *testing.T) {
 
 	cfg := &config.Config{
 		LLM: config.LLMConfig{
-			APIKey: "", // No API key to trigger early error
+			APIKey: "key",
 		},
 		Notification: config.NotificationConfig{
-			Enabled: true,
+			Enabled:    true,
+			ShoutrrURL: "", // enabled but no URL → notifier init fails
 		},
 	}
 
 	err := handleExecutiveSummaryAndNotifications(ctx, outcomes, cfg, scanCfg)
 
 	if err == nil {
-		t.Error("Expected error when LLM init fails")
+		t.Error("Expected error when notifier init fails")
 	}
 }
 
