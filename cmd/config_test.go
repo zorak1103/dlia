@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -731,14 +733,24 @@ func TestConfigCmd_ShowsAnswerLimitsAndExtraBodyKeysOnly(t *testing.T) {
 
 	output := captureConfigOutput(t, testCfg)
 
-	assert.Contains(t, output, "Max Answer Tokens:")
-	assert.Contains(t, output, "4000")
-	assert.Contains(t, output, "Max Chunk Summary:")
-	assert.Contains(t, output, "2000")
-	assert.Contains(t, output, "Extra Body Keys:")
-	assert.Contains(t, output, "provider, reasoning")
+	assert.Regexp(t, `Max Answer Tokens:\s+4000`, output)
+	assert.Regexp(t, `Max Chunk Summary:\s+2000`, output)
+	assert.Regexp(t, `Extra Body Keys:\s+provider, reasoning`, output)
 	assert.NotContains(t, output, "zdr")
 	assert.NotContains(t, output, "effort")
+}
+
+func TestConfigCmd_LLMValuesAligned(t *testing.T) {
+	output := captureConfigOutput(t, &config.Config{LLM: config.LLMConfig{BaseURL: "u", Model: "m", APIKey: "k"}})
+
+	cols := map[int]bool{}
+	for _, label := range []string{"Base URL:", "Model:", "Context Window:", "Max Chunks:", "Max Answer Tokens:", "Max Chunk Summary:", "Extra Body Keys:", "API Key:"} {
+		loc := regexp.MustCompile(regexp.QuoteMeta(label) + ` +`).FindStringIndex(output)
+		require.NotNil(t, loc, label)
+		lineStart := strings.LastIndex(output[:loc[0]], "\n") + 1
+		cols[loc[1]-lineStart] = true
+	}
+	assert.Len(t, cols, 1, "LLM values must start in one column")
 }
 
 func TestConfigCmd_EmptyExtraBodyShowsNone(t *testing.T) {

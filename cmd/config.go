@@ -101,14 +101,14 @@ Sensitive values like API keys are masked for security.`,
 
 		// LLM Configuration
 		fmt.Println("🤖 LLM Configuration:")
-		fmt.Printf("   Base URL:       %s\n", cfg.LLM.BaseURL)
-		fmt.Printf("   Model:          %s\n", cfg.LLM.Model)
-		fmt.Printf("   Context Window: %d\n", cfg.LLM.ContextWindow)
-		fmt.Printf("   Max Chunks:     %d\n", cfg.LLM.MaxChunksPerContainer)
+		fmt.Printf("   Base URL:           %s\n", cfg.LLM.BaseURL)
+		fmt.Printf("   Model:              %s\n", cfg.LLM.Model)
+		fmt.Printf("   Context Window:     %d\n", cfg.LLM.ContextWindow)
+		fmt.Printf("   Max Chunks:         %d\n", cfg.LLM.MaxChunksPerContainer)
 		fmt.Printf("   Max Answer Tokens:  %d\n", cfg.LLM.MaxAnswerTokens)
 		fmt.Printf("   Max Chunk Summary:  %d\n", cfg.LLM.MaxChunkSummaryTokens)
 		fmt.Printf("   Extra Body Keys:    %s\n", extraBodyKeys(cfg.LLM.ExtraBody))
-		fmt.Printf("   API Key:        %s\n", maskAPIKey(cfg.LLM.APIKey))
+		fmt.Printf("   API Key:            %s\n", maskAPIKey(cfg.LLM.APIKey))
 		fmt.Println()
 
 		// Scan Configuration
