@@ -542,18 +542,13 @@ func handleExecutiveSummaryAndNotifications(ctx context.Context, outcomes map[st
 		return nil
 	}
 
-	summary := buildExecSummary(ctx, outcomes, cfg, scanCfg)
+	summary := buildExecSummary(ctx, outcomes, overall, cfg, scanCfg)
 	return notifyDecision(notifier, summary, outcomes, overall, scanCfg)
 }
 
 // buildExecSummary generates the executive summary from successful outcomes.
 // On error it prints a warning and returns an empty string.
-func buildExecSummary(ctx context.Context, outcomes map[string]knowledge.ServiceOutcome, cfg *config.Config, scanCfg *scanConfig) string {
-	// Compute the overall level before the empty check: failed containers
-	// (nil Result) contribute unknown to the overall level even when no
-	// container succeeded; the early return only skips the LLM call.
-	overall := overallSeverity(outcomes)
-
+func buildExecSummary(ctx context.Context, outcomes map[string]knowledge.ServiceOutcome, overall severity.Level, cfg *config.Config, scanCfg *scanConfig) string {
 	analyses := make([]prompts.ContainerAnalysis, 0, len(outcomes))
 	for name, o := range outcomes {
 		if o.Result != nil {
