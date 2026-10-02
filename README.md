@@ -340,7 +340,7 @@ SEVERITY: <level>
 
 where `<level>` is `critical`, `warning`, or `ok`. The code reads the **last** matching line so that any earlier occurrences echoed from log content are ignored. The line is stripped from the report. If the line is missing or carries an unrecognised value, the container is treated as `unknown` (ranked between `warning` and `critical`). Containers whose analysis failed entirely also count as `unknown`.
 
-The **overall severity** of a scan is the highest level across all containers. It is shown in the notification and in `knowledge_base/global_summary.md`.
+The **overall severity** of a scan is the highest level across all containers. It is shown in the notification; `global_summary.md` shows each service's badge and how many services need attention. Since this release, notifications are only sent when the scan reaches `min_severity` (default `warning`), so users who want a message after every scan must set `min_severity: ok`.
 
 **`notification.min_severity`** (default `warning`, env `DLIA_NOTIFICATION_MIN_SEVERITY`) controls when a notification is sent:
 
