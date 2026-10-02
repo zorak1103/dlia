@@ -201,6 +201,13 @@ func (p *Pipeline) AnalyzeLogs(ctx context.Context, containerName string, logs [
 		return nil, fmt.Errorf("failed to load analysis prompt: %w", err)
 	}
 
+	// Step 4: Choose analysis strategy and parse severity from the final answer.
+	return p.analyzeByBudget(ctx, containerName, processedLogs, systemPrompt, userPromptBase, logsText, result)
+}
+
+// analyzeByBudget calculates the token budget, picks direct or chunked analysis,
+// then strips the SEVERITY line from the final answer and stores it in result.
+func (p *Pipeline) analyzeByBudget(ctx context.Context, containerName string, processedLogs []docker.LogEntry, systemPrompt, userPromptBase, logsText string, result *AnalyzeResult) (*AnalyzeResult, error) {
 	// Calculate token budget: system prompt + base user prompt (with severity instruction)
 	// + actual log content. Available tokens for logs = model limit - response reserve - system overhead.
 	systemTokens := p.tokenizer.EstimateSystemPromptTokens(systemPrompt)
@@ -210,7 +217,7 @@ func (p *Pipeline) AnalyzeLogs(ctx context.Context, containerName string, logs [
 	totalTokens := systemTokens + baseUserTokens + logsTokens
 	availableTokens := p.maxTokens - ResponseReserveTokens - systemTokens
 
-	// Step 4: Choose analysis strategy based on token budget
+	var err error
 	if totalTokens+ResponseReserveTokens <= p.maxTokens {
 		var usage *llm.TokenUsage
 		result.Analysis, usage, err = p.analyzeDirectly(ctx, containerName, processedLogs, systemPrompt, logsText)
