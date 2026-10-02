@@ -882,8 +882,6 @@ func TestClient_APIErrorExtractedFromNon200Response(t *testing.T) {
 	}
 }
 
-// Helper function to check if string contains substring
-
 // captureServer returns a test server that records the decoded request body
 // and answers with the given content and finish reason (omitted if empty).
 func captureServer(t *testing.T, content, finish string) (*httptest.Server, *map[string]any) {
@@ -1009,8 +1007,10 @@ func TestAnalyze_FinishReasonLength(t *testing.T) {
 		inc.LimitKey != "llm.max_answer_tokens" || inc.Container != "nginx" {
 		t.Errorf("unexpected error fields: %+v", inc)
 	}
-	if !strings.Contains(err.Error(), "raise llm.max_answer_tokens") || !strings.Contains(err.Error(), "llm.extra_body") {
-		t.Errorf("message lacks hints: %v", err)
+	want := "LLM answer for container nginx incomplete (finish_reason=length, limit 4000 tokens): " +
+		"raise llm.max_answer_tokens or lower the reasoning effort via llm.extra_body"
+	if err.Error() != want {
+		t.Errorf("message = %q, want %q", err.Error(), want)
 	}
 }
 
@@ -1026,6 +1026,18 @@ func TestSummarizeChunk_EmptyAnswer(t *testing.T) {
 	}
 	if inc.Reason != "empty answer" || inc.LimitKey != "llm.max_chunk_summary_tokens" || inc.Limit != 2000 {
 		t.Errorf("unexpected error fields: %+v", inc)
+	}
+}
+
+func TestAnalyze_EmptyContent(t *testing.T) {
+	server, _ := captureServer(t, "", "stop")
+	client := NewClient(Options{BaseURL: server.URL, Model: "m"})
+
+	_, _, err := client.Analyze(context.Background(), "nginx", "sys", "usr")
+
+	var inc *IncompleteAnswerError
+	if !errors.As(err, &inc) || inc.Reason != "empty answer" || inc.LimitKey != "llm.max_answer_tokens" {
+		t.Errorf("err = %v, want empty-answer IncompleteAnswerError", err)
 	}
 }
 

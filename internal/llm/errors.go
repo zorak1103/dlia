@@ -23,8 +23,8 @@ func (e *IncompleteAnswerError) Error() string {
 		subject = " for container " + e.Container
 	}
 	return fmt.Sprintf(
-		"LLM answer incomplete (%s)%s: raise %s (currently %d) or limit reasoning via llm.extra_body",
-		e.Reason, subject, e.LimitKey, e.Limit,
+		"LLM answer%s incomplete (%s, limit %d tokens): raise %s or lower the reasoning effort via llm.extra_body",
+		subject, e.Reason, e.Limit, e.LimitKey,
 	)
 }
 
