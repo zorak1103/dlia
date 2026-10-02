@@ -154,25 +154,31 @@ activate state
 state --> scan : OK
 deactivate state
 
-scan -> knowledge : UpdateGlobalSummary(globalResults, cfg)
+scan -> knowledge : UpdateGlobalSummary(outcomes (incl. failed), cfg)
 activate knowledge
 knowledge --> scan : OK
 deactivate knowledge
-
-scan -> llm : Analyze(ctx, systemPrompt, execSummaryPrompt)
-activate llm
-llm -> llm_api : POST /chat/completions
-llm_api --> llm : executiveSummary
-llm --> scan : summary
-deactivate llm
 
 scan -> notification : NewNotifier(cfg)
 activate notification
 
 alt notification enabled
-    notification -> notify_api : Send(message)
-    notify_api --> notification : OK
-    notification --> scan : Sent
+    alt overall severity >= notification.min_severity
+        opt at least one successful result
+            scan -> llm : Analyze(ctx, systemPrompt, execSummaryPrompt)
+            activate llm
+            llm -> llm_api : POST /chat/completions
+            llm_api --> llm : executiveSummary
+            llm --> scan : summary
+            deactivate llm
+        end
+
+        notification -> notify_api : Send(message)
+        notify_api --> notification : OK
+        notification --> scan : Sent
+    else below threshold
+        notification --> scan : Skipped (no summary, no send)
+    end
 else notification disabled
     notification --> scan : Skipped
 end
