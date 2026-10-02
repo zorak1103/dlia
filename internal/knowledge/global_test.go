@@ -172,9 +172,9 @@ func TestUpdateGlobalSummary_ReportLink(t *testing.T) {
 
 	content := readGlobalSummary(t, kbDir)
 
-	// should contain angle-bracket link with relative path
-	if !strings.Contains(content, `[latest report](<`) {
-		t.Errorf("expected angle-bracket report link, got:\n%s", content)
+	// should contain angle-bracket link with the exact relative path
+	if !strings.Contains(content, "[latest report](<../reports/my svc/2026.md>)") {
+		t.Errorf("expected exact angle-bracket report link, got:\n%s", content)
 	}
 	if !strings.Contains(content, "my svc") {
 		t.Errorf("expected service name in link text, got:\n%s", content)
@@ -217,5 +217,24 @@ func TestUpdateGlobalSummary_EmptyAttentionList(t *testing.T) {
 	content := readGlobalSummary(t, tmpDir)
 	if !strings.Contains(content, "*No services need attention.*") {
 		t.Errorf("expected empty attention message, got:\n%s", content)
+	}
+}
+
+func TestReportLink_MixedAbsoluteRelative(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+
+	relReport := filepath.Join("reports", "svc", "r.md")
+	absReport := filepath.Join(cwd, relReport)
+	absKB := filepath.Join(cwd, "kb")
+	const want = "<../reports/svc/r.md>"
+
+	if got := reportLink(relReport, absKB); got != want {
+		t.Errorf("reportLink(relative report, absolute kb) = %q, want %q", got, want)
+	}
+	if got := reportLink(absReport, "kb"); got != want {
+		t.Errorf("reportLink(absolute report, relative kb) = %q, want %q", got, want)
 	}
 }

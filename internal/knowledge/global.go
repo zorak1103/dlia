@@ -156,19 +156,26 @@ func writeAttentionSection(sb *strings.Builder, outcomes map[string]ServiceOutco
 	}
 }
 
-// reportLink builds a relative forward-slash link from kbDir to reportPath,
+// reportLink builds a relative forward-slash link from kbDir to reportPath (both made absolute first),
 // wrapped in angle brackets for paths that may contain spaces.
 // Returns "" when reportPath is empty.
 func reportLink(reportPath, kbDir string) string {
 	if reportPath == "" {
 		return ""
 	}
-	rel, err := filepath.Rel(kbDir, reportPath)
+	absReport, err := filepath.Abs(reportPath)
 	if err != nil {
-		rel = reportPath
+		return "<" + filepath.ToSlash(reportPath) + ">"
 	}
-	rel = filepath.ToSlash(rel)
-	return "<" + rel + ">"
+	absKB, err := filepath.Abs(kbDir)
+	if err != nil {
+		return "<" + filepath.ToSlash(absReport) + ">"
+	}
+	rel, err := filepath.Rel(absKB, absReport)
+	if err != nil {
+		rel = absReport
+	}
+	return "<" + filepath.ToSlash(rel) + ">"
 }
 
 func sortedNames(outcomes map[string]ServiceOutcome) []string {
