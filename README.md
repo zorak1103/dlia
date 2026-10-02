@@ -10,12 +10,12 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/zorak1103/dlia)](https://hub.docker.com/r/zorak1103/dlia)
 [![Renovate](https://github.com/zorak1103/dlia/actions/workflows/renovate.yml/badge.svg)](https://github.com/zorak1103/dlia/actions/workflows/renovate.yml)
 
-**DLIA** is an AI-powered Docker log monitoring agent that uses Large Language Models (LLMs) to intelligently analyze container logs, detect anomalies, and provide contextual insights over time.
+**DLIA** is an AI-powered Docker log monitoring agent that uses Large Language Models (LLMs) to intelligently analyze container logs, detect anomalies, and keep a human-readable history of what it found.
 
 ## Features
 
 - **Semantic Log Analysis** - Uses LLMs to understand log context, not just keyword matching.
-- **Historical Context** - Tracks trends over time to detect gradual degradation.
+- **History Archive** - Stores the result of every scan (severity and analysis text) per container as Markdown. The LLM does not read this history back, so each scan is analyzed on its own; there is no automatic trend detection.
 - **Natural Language Filtering** - Ignore routine errors or expected noise by providing instructions in plain English (e.g., "Ignore 'connection refused' during nightly backups").
 - **Self-Cleaning Knowledge Base** - Automatically "forgets" issues based on a configurable retention period (default: 30 days), keeping the knowledge base relevant.
 - **Customizable AI Prompts** - Override the default AI instructions to tune the analysis process for your specific needs.
@@ -313,6 +313,30 @@ Each pattern uses **Go regexp syntax** ([documentation](https://pkg.go.dev/regex
 - `.*pattern.*` - Match anywhere in line (implicit in substring matches)
 - `\\[info\\]` - Match literal brackets (escape with `\\`)
 
+#### Repeated and Alternating Lines
+
+Before filtering, DLIA collapses runs of **consecutive identical** lines (3 or more) into a single `[REPEAT xN] <line>` entry. Lines that merely repeat **alternately or interleaved** are not collapsed, because they are never identical to their neighbor:
+
+```
+GET /health 200
+GET /metrics 200
+GET /health 200
+GET /metrics 200
+```
+
+This is typical for health checks and metrics scrapes. Exclude such noise with `regexp_filters`, for example:
+
+```yaml
+regexp_filters:
+  my-app:
+    enabled: true
+    patterns:
+      - "GET /health"
+      - "GET /metrics"
+```
+
+Lines whose message differs in some part (request IDs, durations) are not identical either, so they are not collapsed. A pattern matches them regardless. Timestamps do not matter for this comparison.
+
 #### Monitoring Effectiveness
 
 Use the `--filter-stats` flag to see filtering statistics:
@@ -512,7 +536,7 @@ export DLIA_OUTPUT_KNOWLEDGE_RETENTION_DAYS=90
 
 **Long retention (90-365 days):**
 - Compliance or audit requirements
-- Long-term trend analysis
+- Longer history for manual review and trend spotting (DLIA does not analyze trends itself)
 - Infrequent issues that need longer context
 
 **Example:**

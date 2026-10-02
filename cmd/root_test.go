@@ -198,7 +198,7 @@ func TestRootCmd_HasFeatureDescriptions(t *testing.T) {
 	expectedFeatures := []string{
 		"Semantic log analysis",
 		"LLM",
-		"Historical context",
+		"human-readable history",
 		"Privacy",
 		"masking",
 		"notification",
@@ -210,6 +210,10 @@ func TestRootCmd_HasFeatureDescriptions(t *testing.T) {
 		if !containsString(longDesc, feature) {
 			t.Errorf("Expected long description to mention '%s'", feature)
 		}
+	}
+
+	if containsString(longDesc, "trend detection") {
+		t.Error("Long description must not promise trend detection (the LLM does not read the history back)")
 	}
 }
 

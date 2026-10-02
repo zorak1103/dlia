@@ -151,6 +151,10 @@ prompts:
 # Regexp Filters Configuration (Cost Optimization)
 # Filters logs before LLM processing to reduce costs
 # Patterns use Go regexp syntax: https://pkg.go.dev/regexp/syntax
+#
+# Note: built-in deduplication only collapses consecutive identical lines.
+# Noise that is alternating or interleaved (e.g. health check, metrics,
+# health check, metrics, ...) is NOT collapsed - exclude it here instead.
 regexp_filters:
   # Example: Filter debug logs and health checks from a specific container
   # my-container:
@@ -158,6 +162,7 @@ regexp_filters:
   #   patterns:
   #     - "^DEBUG:"           # Lines starting with DEBUG:
   #     - "healthcheck"       # Any line containing "healthcheck"
+  #     - "GET /metrics"      # Metrics scrapes interleaved with other requests
   #     - "\\[TRACE\\]"       # Lines containing [TRACE] (escape brackets)
   #     - "(?i)verbose"       # Case-insensitive match for "verbose"
   
