@@ -93,7 +93,7 @@ Sensitive values like API keys are masked for security.`,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		cfg := GetConfig()
 		if cfg == nil {
-			return fmt.Errorf("configuration not loaded\n\nTo get started, run: dlia init")
+			return &exitError{code: 2, err: fmt.Errorf("configuration not loaded\n\nTo get started, run: dlia init")}
 		}
 
 		fmt.Println("=== DLIA Effective Configuration ===")

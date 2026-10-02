@@ -228,6 +228,28 @@ func TestConfigCmd_RequiresConfig(t *testing.T) {
 	}
 }
 
+func TestConfigCmd_RequiresConfigExitCode2(t *testing.T) {
+	// Reset viper and cfg to test config requirement
+	viper.Reset()
+	originalCfg := cfg
+	cfg = nil
+	defer func() { cfg = originalCfg }()
+
+	var buf bytes.Buffer
+	cmd := configCmd
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+
+	err := cmd.RunE(cmd, []string{})
+
+	require.Error(t, err)
+	var ee *exitError
+	if !errors.As(err, &ee) || ee.code != 2 {
+		t.Errorf("expected exitError code 2, got %v", err)
+	}
+	assert.Equal(t, "configuration not loaded\n\nTo get started, run: dlia init", err.Error())
+}
+
 // Helper function to check if string contains substring
 func containsString(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
@@ -616,11 +638,10 @@ func TestValidateConfigOrExit_StateDirInCurrentDir(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TestValidateConfigOrExit_ExitCode2 tests assert that every failing branch of
+// The ..._ExitCode2 tests assert that every failing branch of
 // validateConfigOrExit wraps its error in an *exitError with code 2, so that
 // Execute() maps configuration errors to process exit code 2. The error message
 // text itself is pinned by the pre-existing TestValidateConfigOrExit_* tests.
-
 func TestValidateConfigOrExit_NilConfigExitCode2(t *testing.T) {
 	original := errConfigLoad
 	t.Cleanup(func() { errConfigLoad = original })
