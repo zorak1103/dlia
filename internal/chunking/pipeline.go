@@ -9,6 +9,7 @@ import (
 	"github.com/zorak1103/dlia/internal/docker"
 	"github.com/zorak1103/dlia/internal/llm"
 	"github.com/zorak1103/dlia/internal/prompts"
+	"github.com/zorak1103/dlia/internal/severity"
 )
 
 const (
@@ -117,6 +118,7 @@ func NewPipelineWithConfig(model string, contextWindow int, client AnalysisClien
 // AnalyzeResult contains the analysis result
 type AnalyzeResult struct {
 	Analysis       string
+	Severity       severity.Level
 	TokensUsed     int
 	ChunksUsed     int
 	Deduplicated   bool
@@ -199,11 +201,10 @@ func (p *Pipeline) AnalyzeLogs(ctx context.Context, containerName string, logs [
 		return nil, fmt.Errorf("failed to load analysis prompt: %w", err)
 	}
 
-	// Calculate token budget: system prompt + base user prompt + actual log content.
-	// Available tokens for logs = model limit - response reserve - system overhead.
-	// This ensures the model can generate a complete response without truncation.
+	// Calculate token budget: system prompt + base user prompt (with severity instruction)
+	// + actual log content. Available tokens for logs = model limit - response reserve - system overhead.
 	systemTokens := p.tokenizer.EstimateSystemPromptTokens(systemPrompt)
-	baseUserTokens := p.tokenizer.CountTokens(userPromptBase)
+	baseUserTokens := p.tokenizer.CountTokens(userPromptBase + "\n\n" + severity.Instruction)
 	logsTokens := p.tokenizer.CountTokens(logsText)
 
 	totalTokens := systemTokens + baseUserTokens + logsTokens
@@ -225,6 +226,10 @@ func (p *Pipeline) AnalyzeLogs(ctx context.Context, containerName string, logs [
 		}
 	}
 
+	if result.ChunksUsed > 0 {
+		result.Severity, result.Analysis = severity.Parse(result.Analysis)
+	}
+
 	return result, nil
 }
 
@@ -233,6 +238,7 @@ func (p *Pipeline) analyzeDirectly(ctx context.Context, containerName string, lo
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to load analysis prompt: %w", err)
 	}
+	userPrompt += "\n\n" + severity.Instruction
 	return p.client.Analyze(ctx, containerName, systemPrompt, userPrompt)
 }
 
@@ -305,6 +311,7 @@ func (p *Pipeline) analyzeWithChunking(ctx context.Context, containerName string
 	if synthesisErr != nil {
 		return "", totalTokens, chunksUsed, notes, fmt.Errorf("failed to load synthesis prompt: %w", synthesisErr)
 	}
+	synthesisPrompt += "\n\n" + severity.Instruction
 	finalAnalysis, usage, analyzeErr := p.client.Analyze(ctx, containerName, systemPrompt, synthesisPrompt)
 	if analyzeErr != nil {
 		return "", totalTokens, chunksUsed, notes, fmt.Errorf("failed to synthesize %d chunk summaries for container %s: %w",

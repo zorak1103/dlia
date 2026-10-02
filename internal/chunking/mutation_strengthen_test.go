@@ -16,6 +16,7 @@ import (
 	"github.com/zorak1103/dlia/internal/docker"
 	"github.com/zorak1103/dlia/internal/llm"
 	"github.com/zorak1103/dlia/internal/prompts"
+	"github.com/zorak1103/dlia/internal/severity"
 )
 
 // recordingClient captures every call so tests can assert exact call counts,
@@ -246,7 +247,9 @@ func TestPipeline_DirectPathWhenBudgetAllows(t *testing.T) {
 	require.NoError(t, err)
 	basePrompt, err := loader.AnalysisPrompt("c", "", 3)
 	require.NoError(t, err)
-	total := tok.EstimateSystemPromptTokens(systemPrompt) + tok.CountTokens(basePrompt) +
+	// Budget must include the severity instruction appended to basePrompt.
+	total := tok.EstimateSystemPromptTokens(systemPrompt) +
+		tok.CountTokens(basePrompt+"\n\n"+severity.Instruction) +
 		tok.CountTokens(FormatLogs(logs))
 
 	p := newTestPipeline(t, tok, client, total+ResponseReserveTokens)
