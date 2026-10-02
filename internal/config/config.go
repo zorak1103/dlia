@@ -11,6 +11,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
+	"github.com/zorak1103/dlia/internal/severity"
 )
 
 // Common errors
@@ -104,8 +105,19 @@ type DockerConfig struct {
 
 // NotificationConfig contains notification settings
 type NotificationConfig struct {
-	ShoutrrURL string `mapstructure:"shoutrrr_url"` // Shoutrrr URL format
-	Enabled    bool   `mapstructure:"enabled"`
+	ShoutrrURL  string `mapstructure:"shoutrrr_url"` // Shoutrrr URL format
+	Enabled     bool   `mapstructure:"enabled"`
+	MinSeverity string `mapstructure:"min_severity"`
+}
+
+// Threshold parses MinSeverity and returns the corresponding severity.Level.
+// Falls back to severity.Warning when MinSeverity is empty or invalid.
+func (n NotificationConfig) Threshold() severity.Level {
+	level, err := severity.ParseThreshold(n.MinSeverity)
+	if err != nil {
+		return severity.Warning
+	}
+	return level
 }
 
 // OutputConfig contains output path settings
@@ -273,6 +285,7 @@ func setDefaults(v *viper.Viper) {
 	// Notification defaults
 	v.SetDefault("notification.shoutrrr_url", "") // Required for AutomaticEnv to work
 	v.SetDefault("notification.enabled", false)
+	v.SetDefault("notification.min_severity", "warning")
 
 	// Output defaults
 	v.SetDefault("output.reports_dir", "./reports")
@@ -376,6 +389,10 @@ func (c *Config) validateRanges(configSource string) error {
 		}
 		return fmt.Errorf("%s must be at least %d, got %d in config %s",
 			name, MinContextWindow, c.LLM.ContextWindow, configSource)
+	}
+	if _, err := severity.ParseThreshold(c.Notification.MinSeverity); err != nil {
+		return fmt.Errorf("notification.min_severity must be one of ok, warning, critical, got %q in config %s",
+			c.Notification.MinSeverity, configSource)
 	}
 	return nil
 }

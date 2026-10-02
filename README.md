@@ -190,6 +190,7 @@ docker:
 notification:
   shoutrrr_url: ""  # smtp://, discord://, slack://, etc.
   enabled: false
+  min_severity: "warning"  # ok | warning | critical
 
 output:
   reports_dir: "./reports"

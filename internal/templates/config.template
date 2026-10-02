@@ -64,6 +64,11 @@ notification:
   # Enable/disable notifications
   enabled: false
 
+  # Minimum scan severity that triggers a notification: ok | warning | critical
+  # ok = notify after every scan. Failed analyses count as warning-level.
+  # Set via environment variable: DLIA_NOTIFICATION_MIN_SEVERITY
+  min_severity: "warning"
+
 # Output Configuration
 output:
   # Directory for per-scan reports

@@ -137,6 +137,10 @@ func TestConfigYAML_ContainsNotificationConfig(t *testing.T) {
 	if !strings.Contains(content, "notification:") {
 		t.Error("Expected ConfigYAML to contain notification configuration")
 	}
+
+	if !strings.Contains(content, "min_severity:") {
+		t.Error("Expected ConfigYAML to contain min_severity field")
+	}
 }
 
 func TestConfigYAML_ContainsOutputConfig(t *testing.T) {
