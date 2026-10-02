@@ -485,7 +485,7 @@ func TestPipeline_AnalyzeDirectly(t *testing.T) {
 
 	logsText := FormatLogs(logs)
 	ctx := context.Background()
-	analysis, usage, err := pipeline.analyzeDirectly(ctx, "test-container", logs, "system prompt", logsText)
+	analysis, usage, err := pipeline.analyzeDirectly(ctx, "test-container", "", logs, logsText)
 
 	require.NoError(t, err)
 	assert.Equal(t, testMockAnalysisResponse, analysis)
@@ -558,7 +558,7 @@ func TestPipeline_AnalyzeWithChunking(t *testing.T) {
 			}
 
 			ctx := context.Background()
-			analysis, tokens, chunksUsed, _, err := pipeline.analyzeWithChunking(ctx, "test-container", tt.logs, "system prompt", tt.availableTokens)
+			analysis, tokens, chunksUsed, _, err := pipeline.analyzeWithChunking(ctx, "test-container", "", tt.logs, tt.availableTokens)
 
 			if tt.wantErr {
 				assert.Error(t, err)

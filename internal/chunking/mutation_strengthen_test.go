@@ -16,14 +16,15 @@ import (
 	"github.com/zorak1103/dlia/internal/docker"
 	"github.com/zorak1103/dlia/internal/llm"
 	"github.com/zorak1103/dlia/internal/prompts"
-	"github.com/zorak1103/dlia/internal/severity"
 )
 
 // recordingClient captures every call so tests can assert exact call counts,
 // prompt contents, and computed token totals.
 type recordingClient struct {
-	analyzeUserPrompts []string
-	summarizePrompts   []string
+	analyzeUserPrompts     []string
+	analyzeSystemPrompts   []string
+	summarizePrompts       []string
+	summarizeSystemPrompts []string
 
 	analyzeResponse string
 	analyzeUsage    *llm.TokenUsage
@@ -41,7 +42,8 @@ func newRecordingClient() *recordingClient {
 	}
 }
 
-func (c *recordingClient) Analyze(_ context.Context, _, _, userPrompt string) (string, *llm.TokenUsage, error) {
+func (c *recordingClient) Analyze(_ context.Context, _, systemPrompt, userPrompt string) (string, *llm.TokenUsage, error) {
+	c.analyzeSystemPrompts = append(c.analyzeSystemPrompts, systemPrompt)
 	c.analyzeUserPrompts = append(c.analyzeUserPrompts, userPrompt)
 	if c.analyzeErr != nil {
 		return "", nil, c.analyzeErr
@@ -49,8 +51,9 @@ func (c *recordingClient) Analyze(_ context.Context, _, _, userPrompt string) (s
 	return c.analyzeResponse, c.analyzeUsage, nil
 }
 
-func (c *recordingClient) SummarizeChunk(_ context.Context, _, _, chunkPrompt string) (string, error) {
+func (c *recordingClient) SummarizeChunk(_ context.Context, _, systemPrompt, chunkPrompt string) (string, error) {
 	i := len(c.summarizePrompts)
+	c.summarizeSystemPrompts = append(c.summarizeSystemPrompts, systemPrompt)
 	c.summarizePrompts = append(c.summarizePrompts, chunkPrompt)
 	if err, ok := c.summarizeErrOn[i]; ok {
 		return "", err
@@ -243,13 +246,11 @@ func TestPipeline_DirectPathWhenBudgetAllows(t *testing.T) {
 
 	logs := threeLogs()
 	loader := prompts.NewPromptLoader(&config.Config{})
-	systemPrompt, err := loader.SystemPrompt("")
+	base, err := loader.AnalysisMessages("c", "", "", 3)
 	require.NoError(t, err)
-	basePrompt, err := loader.AnalysisPrompt("c", "", 3)
-	require.NoError(t, err)
-	// Budget must include the severity instruction appended to basePrompt.
-	total := tok.EstimateSystemPromptTokens(systemPrompt) +
-		tok.CountTokens(basePrompt+"\n\n"+severity.Instruction) +
+	// The message pair already includes the marker pair and the severity instruction.
+	total := tok.EstimateSystemPromptTokens(base.System) +
+		tok.CountTokens(base.User) +
 		tok.CountTokens(FormatLogs(logs))
 
 	p := newTestPipeline(t, tok, client, total+ResponseReserveTokens)
@@ -272,9 +273,9 @@ func TestPipeline_DirectPathWhenBudgetAllows(t *testing.T) {
 func newForcedChunkedPipeline(t *testing.T, tok TokenizerInterface, client AnalysisClient) (*Pipeline, int) {
 	t.Helper()
 	loader := prompts.NewPromptLoader(&config.Config{})
-	sysPrompt, err := loader.SystemPrompt("")
+	base, err := loader.AnalysisMessages("c", "", "", 3)
 	require.NoError(t, err)
-	sysTok := tok.EstimateSystemPromptTokens(sysPrompt)
+	sysTok := tok.EstimateSystemPromptTokens(base.System)
 	maxTokens := ResponseReserveTokens + sysTok + 140
 	p := &Pipeline{
 		tokenizer:    tok,
