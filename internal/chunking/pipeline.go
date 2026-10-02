@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/zorak1103/dlia/internal/anonymize"
 	"github.com/zorak1103/dlia/internal/config"
 	"github.com/zorak1103/dlia/internal/docker"
 	"github.com/zorak1103/dlia/internal/llm"
@@ -13,9 +14,10 @@ import (
 )
 
 const (
-	// ResponseReserveTokens ensures the model has adequate space for complete responses
-	// while processing log analysis requests. Insufficient reserve may cause truncated outputs.
-	ResponseReserveTokens = 4000
+	// DefaultResponseReserveTokens is the response reserve used when no llm.max_answer_tokens
+	// is configured. The pipeline reserves llm.max_answer_tokens so the model has adequate
+	// space for complete responses; insufficient reserve may cause truncated outputs.
+	DefaultResponseReserveTokens = 4000
 
 	// SystemPromptReserveTokens accounts for the system prompt overhead in token calculations.
 	// This estimate is based on typical prompt templates and may need adjustment for custom prompts.
@@ -44,6 +46,7 @@ type Pipeline struct {
 	promptLoader               *prompts.PromptLoader
 	tokenCountIsEstimate       bool
 	maxChunks                  int
+	responseReserve            int
 }
 
 // TokenCountIsEstimate reports whether token counts are estimates because the
@@ -100,8 +103,12 @@ func NewPipelineWithConfig(model string, contextWindow int, client AnalysisClien
 	}
 
 	maxChunks := 0
+	responseReserve := DefaultResponseReserveTokens
 	if cfg != nil {
 		maxChunks = cfg.LLM.MaxChunksPerContainer
+		if cfg.LLM.MaxAnswerTokens > 0 {
+			responseReserve = cfg.LLM.MaxAnswerTokens
+		}
 	}
 
 	return &Pipeline{
@@ -114,6 +121,7 @@ func NewPipelineWithConfig(model string, contextWindow int, client AnalysisClien
 		compiledRegexpsByContainer: regexpFilters,
 		promptLoader:               promptLoader,
 		maxChunks:                  maxChunks,
+		responseReserve:            responseReserve,
 	}, nil
 }
 
@@ -160,6 +168,26 @@ func (p *Pipeline) applyRegexpFilter(containerName string, logs []docker.LogEntr
 	return filteredLogs, stats
 }
 
+// anonymizeLogs masks IPs and secrets according to the privacy config using one
+// session per call, so placeholders stay consistent across all chunks. It returns
+// a masked copy and never mutates the input.
+func (p *Pipeline) anonymizeLogs(logs []docker.LogEntry) []docker.LogEntry {
+	if p.config == nil || (!p.config.Privacy.AnonymizeIPs && !p.config.Privacy.AnonymizeSecrets) {
+		return logs
+	}
+
+	session := anonymize.NewSession(anonymize.Options{
+		IPs:     p.config.Privacy.AnonymizeIPs,
+		Secrets: p.config.Privacy.AnonymizeSecrets,
+	})
+	masked := make([]docker.LogEntry, len(logs))
+	for i, entry := range logs {
+		entry.Message = session.Apply(entry.Message)
+		masked[i] = entry
+	}
+	return masked
+}
+
 // AnalyzeLogs processes container logs through the complete pipeline: deduplication,
 // optional regexp filtering, and LLM-based analysis. Automatically handles chunking
 // and recursive summarization when logs exceed the model's context window.
@@ -187,6 +215,9 @@ func (p *Pipeline) AnalyzeLogs(ctx context.Context, containerName string, logs [
 	processedLogs, filterStats := p.applyRegexpFilter(containerName, dedupLogs)
 	result.FilterStats = filterStats
 	result.ProcessedCount = len(processedLogs)
+
+	// Step 1.6: Mask IPs and secrets before anything leaves the process
+	processedLogs = p.anonymizeLogs(processedLogs)
 
 	// Step 2: Format logs
 	logsText := FormatLogs(processedLogs)
@@ -216,10 +247,10 @@ func (p *Pipeline) analyzeByBudget(ctx context.Context, containerName string, pr
 	logsTokens := p.tokenizer.CountTokens(logsText)
 
 	totalTokens := systemTokens + baseUserTokens + logsTokens
-	availableTokens := p.maxTokens - ResponseReserveTokens - systemTokens
+	availableTokens := p.maxTokens - p.responseReserve - systemTokens
 
 	var err error
-	if totalTokens+ResponseReserveTokens <= p.maxTokens {
+	if totalTokens+p.responseReserve <= p.maxTokens {
 		var usage *llm.TokenUsage
 		result.Analysis, usage, err = p.analyzeDirectly(ctx, containerName, ignoreInstructions, processedLogs, logsText)
 		if err != nil {
