@@ -695,3 +695,60 @@ func TestConfigCmd_OutputsKnowledgeRetentionDays(t *testing.T) {
 	assert.Regexp(t, `Max Window:\s+36h0m0s`, output)
 	assert.NotContains(t, output, "Max Tokens")
 }
+
+func captureConfigOutput(t *testing.T, testCfg *config.Config) string {
+	t.Helper()
+
+	originalCfg := cfg
+	cfg = testCfg
+	defer func() { cfg = originalCfg }()
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	require.NoError(t, configCmd.RunE(configCmd, []string{}))
+	require.NoError(t, w.Close())
+
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	return buf.String()
+}
+
+func TestConfigCmd_ShowsAnswerLimitsAndExtraBodyKeysOnly(t *testing.T) {
+	testCfg := &config.Config{
+		LLM: config.LLMConfig{
+			MaxAnswerTokens:       4000,
+			MaxChunkSummaryTokens: 2000,
+			ExtraBody: map[string]any{
+				"reasoning": map[string]any{"effort": "low"},
+				"provider":  map[string]any{"zdr": true},
+			},
+		},
+	}
+
+	output := captureConfigOutput(t, testCfg)
+
+	assert.Contains(t, output, "Max Answer Tokens:")
+	assert.Contains(t, output, "4000")
+	assert.Contains(t, output, "Max Chunk Summary:")
+	assert.Contains(t, output, "2000")
+	assert.Contains(t, output, "Extra Body Keys:")
+	assert.Contains(t, output, "provider, reasoning")
+	assert.NotContains(t, output, "zdr")
+	assert.NotContains(t, output, "effort")
+}
+
+func TestConfigCmd_EmptyExtraBodyShowsNone(t *testing.T) {
+	output := captureConfigOutput(t, &config.Config{})
+
+	assert.Contains(t, output, "Extra Body Keys:")
+	assert.Contains(t, output, "(none)")
+}
+
+func TestExtraBodyKeys(t *testing.T) {
+	assert.Equal(t, "(none)", extraBodyKeys(nil))
+	assert.Equal(t, "a, b, c", extraBodyKeys(map[string]any{"c": 1, "a": 2, "b": 3}))
+}

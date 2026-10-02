@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -104,6 +105,9 @@ Sensitive values like API keys are masked for security.`,
 		fmt.Printf("   Model:          %s\n", cfg.LLM.Model)
 		fmt.Printf("   Context Window: %d\n", cfg.LLM.ContextWindow)
 		fmt.Printf("   Max Chunks:     %d\n", cfg.LLM.MaxChunksPerContainer)
+		fmt.Printf("   Max Answer Tokens:  %d\n", cfg.LLM.MaxAnswerTokens)
+		fmt.Printf("   Max Chunk Summary:  %d\n", cfg.LLM.MaxChunkSummaryTokens)
+		fmt.Printf("   Extra Body Keys:    %s\n", extraBodyKeys(cfg.LLM.ExtraBody))
 		fmt.Printf("   API Key:        %s\n", maskAPIKey(cfg.LLM.APIKey))
 		fmt.Println()
 
@@ -165,6 +169,20 @@ func maskAPIKey(key string) string {
 	}
 	// Show first 4 and last 4 characters
 	return key[:4] + strings.Repeat("*", len(key)-8) + key[len(key)-4:]
+}
+
+// extraBodyKeys lists the sorted top-level keys of extra_body. Values are never
+// shown because they may contain tokens.
+func extraBodyKeys(extra map[string]any) string {
+	if len(extra) == 0 {
+		return "(none)"
+	}
+	keys := make([]string, 0, len(extra))
+	for k := range extra {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
 }
 
 // maskShoutrrrURL masks sensitive parts of Shoutrrr URL

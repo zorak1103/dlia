@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -44,7 +45,23 @@ const (
 	DefaultContextWindow = 128000
 	// MinContextWindow is (ResponseReserveTokens + SystemPromptReserveTokens) / 0.8 — keeps the budget positive with the 80% estimate margin.
 	MinContextWindow = 5625
+	// DefaultMaxAnswerTokens is the default max_tokens for analysis answers.
+	DefaultMaxAnswerTokens = 4000
+	// DefaultMaxChunkSummaryTokens is the default max_tokens for chunk summaries.
+	DefaultMaxChunkSummaryTokens = 2000
+	// MinAnswerTokens is the smallest accepted answer limit.
+	MinAnswerTokens = 256
+
+	systemPromptReserveTokens = 500
+	estimateMarginPercent     = 80
 )
+
+// MinContextWindowFor returns the smallest context window that leaves room for
+// an answer of maxAnswerTokens plus the system prompt, given the 80% estimate margin.
+func MinContextWindowFor(maxAnswerTokens int) int {
+	need := (maxAnswerTokens + systemPromptReserveTokens) * 100
+	return (need + estimateMarginPercent - 1) / estimateMarginPercent
+}
 
 // RegexpFilter represents regexp-based filtering configuration for a container
 type RegexpFilter struct {
@@ -91,6 +108,12 @@ type LLMConfig struct {
 	Model                 string `mapstructure:"model"`
 	ContextWindow         int    `mapstructure:"context_window"`
 	MaxChunksPerContainer int    `mapstructure:"max_chunks_per_container"`
+	// MaxAnswerTokens caps the answer of analysis and synthesis calls.
+	MaxAnswerTokens int `mapstructure:"max_answer_tokens"`
+	// MaxChunkSummaryTokens caps the answer of per-chunk summary calls.
+	MaxChunkSummaryTokens int `mapstructure:"max_chunk_summary_tokens"`
+	// ExtraBody is merged top-level into every chat request (config file only).
+	ExtraBody map[string]any `mapstructure:"extra_body"`
 	// MaxTokens is a deprecated alias for ContextWindow.
 	MaxTokens int `mapstructure:"max_tokens"`
 
@@ -260,6 +283,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("llm.base_url", "https://api.openai.com/v1")
 	v.SetDefault("llm.model", "gpt-4o-mini")
 	v.SetDefault("llm.max_chunks_per_container", 10)
+	v.SetDefault("llm.max_answer_tokens", DefaultMaxAnswerTokens)
+	v.SetDefault("llm.max_chunk_summary_tokens", DefaultMaxChunkSummaryTokens)
 	v.SetDefault("llm.api_key", "") // Required for AutomaticEnv to work
 	// No defaults: "unset" must stay 0 so resolveContextWindow can detect the deprecated alias.
 	_ = v.BindEnv("llm.context_window") // nolint:errcheck // only errors without a key
@@ -344,6 +369,10 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	if err := c.validateExtraBody(configSource); err != nil {
+		return err
+	}
+
 	return c.validateRegexpFilters()
 }
 
@@ -382,17 +411,65 @@ func (c *Config) validateRanges(configSource string) error {
 		return fmt.Errorf("llm.max_chunks_per_container must be at least 1, got %d in config %s",
 			c.LLM.MaxChunksPerContainer, configSource)
 	}
-	if c.LLM.ContextWindow < MinContextWindow {
-		name := "llm.context_window"
-		if c.LLM.contextWindowFromAlias {
-			name = fmt.Sprintf("llm.context_window (set via deprecated llm.max_tokens=%d)", c.LLM.MaxTokens)
-		}
-		return fmt.Errorf("%s must be at least %d, got %d in config %s",
-			name, MinContextWindow, c.LLM.ContextWindow, configSource)
+	if err := c.validateLLMLimits(configSource); err != nil {
+		return err
 	}
 	if _, err := severity.ParseThreshold(c.Notification.MinSeverity); err != nil {
 		return fmt.Errorf("notification.min_severity must be one of ok, warning, critical, got %q in config %s",
 			c.Notification.MinSeverity, configSource)
+	}
+	return nil
+}
+
+func (c *Config) validateLLMLimits(configSource string) error {
+	limits := []struct {
+		name  string
+		value int
+	}{
+		{"llm.max_answer_tokens", c.LLM.MaxAnswerTokens},
+		{"llm.max_chunk_summary_tokens", c.LLM.MaxChunkSummaryTokens},
+	}
+	for _, l := range limits {
+		if l.value < MinAnswerTokens {
+			return fmt.Errorf("%s must be at least %d, got %d in config %s",
+				l.name, MinAnswerTokens, l.value, configSource)
+		}
+	}
+
+	minWindow := MinContextWindowFor(c.LLM.MaxAnswerTokens)
+	if c.LLM.ContextWindow < minWindow {
+		name := "llm.context_window"
+		if c.LLM.contextWindowFromAlias {
+			name = fmt.Sprintf("llm.context_window (set via deprecated llm.max_tokens=%d)", c.LLM.MaxTokens)
+		}
+		return fmt.Errorf("%s must be at least %d for llm.max_answer_tokens=%d, got %d in config %s",
+			name, minWindow, c.LLM.MaxAnswerTokens, c.LLM.ContextWindow, configSource)
+	}
+	return nil
+}
+
+// reservedExtraBodyKeys maps request fields owned by dlia to the reason they cannot be overridden.
+var reservedExtraBodyKeys = map[string]string{ // nolint:gosec // G101 false positive: request field names, not credentials
+	"model":                 "is set by dlia",
+	"messages":              "is set by dlia",
+	"temperature":           "is set by dlia",
+	"max_tokens":            "use llm.max_answer_tokens / llm.max_chunk_summary_tokens",
+	"max_completion_tokens": "use llm.max_answer_tokens / llm.max_chunk_summary_tokens",
+	"stream":                "streaming responses are not supported",
+	"n":                     "dlia reads only one choice",
+}
+
+func (c *Config) validateExtraBody(configSource string) error {
+	keys := make([]string, 0, len(c.LLM.ExtraBody))
+	for k := range c.LLM.ExtraBody {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		if reason, ok := reservedExtraBodyKeys[strings.ToLower(k)]; ok {
+			return fmt.Errorf("llm.extra_body.%s is reserved: %s (config %s)", k, reason, configSource)
+		}
 	}
 	return nil
 }
