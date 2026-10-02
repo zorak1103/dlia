@@ -83,10 +83,19 @@ func writeServiceStatusTable(sb *strings.Builder, outcomes map[string]ServiceOut
 		if o.Result == nil {
 			fmt.Fprintf(sb, "| %s | %s | – |\n", name, severity.FailedLabel)
 		} else {
-			summary := extractSummary(o.Result.Analysis)
-			fmt.Fprintf(sb, "| %s | %s | %s |\n", name, o.Result.Severity.Badge(), summary)
+			fmt.Fprintf(sb, "| %s | %s | %s |\n", name, o.Result.Severity.Badge(), tableCell(extractSummary(o.Result.Analysis)))
 		}
 	}
+}
+
+// tableCell makes s safe for a Markdown table cell: pipes are escaped, line breaks become
+// spaces, and an empty value is shown as an en dash.
+func tableCell(s string) string {
+	s = strings.NewReplacer("|", `\|`, "\r", " ", "\n", " ").Replace(s)
+	if strings.TrimSpace(s) == "" {
+		return "–"
+	}
+	return s
 }
 
 // attentionRank returns the sort rank for a service in the attention list.

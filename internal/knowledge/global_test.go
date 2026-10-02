@@ -238,3 +238,44 @@ func TestReportLink_MixedAbsoluteRelative(t *testing.T) {
 		t.Errorf("reportLink(absolute report, relative kb) = %q, want %q", got, want)
 	}
 }
+
+func TestUpdateGlobalSummary_SummaryCellSafety(t *testing.T) {
+	tests := []struct {
+		name     string
+		analysis string
+		wantRow  string
+	}{
+		{"pipe escaped", "a | b", "| svc | " + severity.Warning.Badge() + " | a \\| b |"},
+		{"empty summary", "", "| svc | " + severity.Warning.Badge() + " | – |"},
+		{"CRLF in summary", "**Summary**: line one\r\nrest", "| svc | " + severity.Warning.Badge() + " | line one |"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			kbDir := t.TempDir()
+			cfg := &config.Config{Output: config.OutputConfig{KnowledgeBaseDir: kbDir}}
+			outcomes := map[string]ServiceOutcome{"svc": makeOutcome(severity.Warning, tc.analysis)}
+			if err := UpdateGlobalSummary(outcomes, cfg); err != nil {
+				t.Fatalf("UpdateGlobalSummary() error = %v", err)
+			}
+			content := readGlobalSummary(t, kbDir)
+			if !strings.Contains(content, tc.wantRow+"\n") {
+				t.Errorf("expected row %q, got:\n%s", tc.wantRow, content)
+			}
+			if strings.Contains(content, "\r") {
+				t.Errorf("expected no carriage returns, got %q", content)
+			}
+		})
+	}
+}
+
+func TestUpdateGlobalSummary_CRLFFirstLine(t *testing.T) {
+	kbDir := t.TempDir()
+	cfg := &config.Config{Output: config.OutputConfig{KnowledgeBaseDir: kbDir}}
+	outcomes := map[string]ServiceOutcome{"svc": makeOutcome(severity.OK, "first\r\nsecond")}
+	if err := UpdateGlobalSummary(outcomes, cfg); err != nil {
+		t.Fatalf("UpdateGlobalSummary() error = %v", err)
+	}
+	if content := readGlobalSummary(t, kbDir); strings.Contains(content, "\r") {
+		t.Errorf("expected no carriage returns, got %q", content)
+	}
+}
