@@ -1,0 +1,18 @@
+2026-10-02T08:00:01Z [info] app starting version=2.14.1 env=production
+2026-10-02T08:00:01Z [info] loading configuration from /etc/app/config.yaml
+2026-10-02T08:00:02Z [info] connected to postgres at db:5432 (pool size 10)
+2026-10-02T08:00:02Z [info] connected to redis at cache:6379
+2026-10-02T08:00:02Z [info] running database migrations: 0 pending
+2026-10-02T08:00:03Z [info] http server listening on :8080
+2026-10-02T08:00:15Z [info] GET /api/v1/status 200 3ms
+2026-10-02T08:01:12Z [info] GET /api/v1/items?page=1 200 18ms
+2026-10-02T08:01:40Z [info] GET /api/v1/items/42 200 9ms
+2026-10-02T08:02:05Z [info] POST /api/v1/items 201 27ms
+2026-10-02T08:03:11Z [info] GET /api/v1/items?page=2 200 16ms
+2026-10-02T08:04:30Z [info] GET /api/v1/users/me 200 7ms
+2026-10-02T08:05:02Z [info] cache refresh completed in 41ms (128 keys)
+2026-10-02T08:06:18Z [info] GET /api/v1/items/43 200 8ms
+2026-10-02T08:07:44Z [info] PUT /api/v1/items/43 200 22ms
+2026-10-02T08:08:09Z [info] GET /api/v1/status 200 2ms
+2026-10-02T08:10:00Z [info] scheduled job cleanup-sessions finished: 0 expired
+2026-10-02T08:11:36Z [info] GET /api/v1/items?page=1 200 15ms
