@@ -19,7 +19,7 @@
 - **Natural Language Filtering** - Ignore routine errors or expected noise by providing instructions in plain English (e.g., "Ignore 'connection refused' during nightly backups").
 - **Self-Cleaning Knowledge Base** - Automatically "forgets" issues based on a configurable retention period (default: 30 days), keeping the knowledge base relevant.
 - **Customizable AI Prompts** - Override the default AI instructions to tune the analysis process for your specific needs.
-- **Privacy-First** - Automatic anonymization of IPs, secrets, and sensitive data.
+- **Privacy-aware** - Best-effort masking of IP addresses and common secret formats before logs are sent to the LLM (see [Privacy & provider choice](#privacy--provider-choice)).
 - **Flexible LLM Backend** - Works with OpenAI, OpenRouter, Ollama, or any OpenAI-compatible API.
 - **Markdown Reports** - Human-readable persistent knowledge base.
 - **Universal Notifications** - Email, Discord, Slack, and more via Shoutrrr.
@@ -180,6 +180,12 @@ llm:
   model: "gpt-4o-mini"
   context_window: 128000  # model context window in tokens (replaces deprecated max_tokens)
   max_chunks_per_container: 10  # analyze at most the newest N chunks per container
+  max_answer_tokens: 4000  # max answer length of an analysis (at least 256)
+  max_chunk_summary_tokens: 2000  # max answer length of a chunk summary (at least 256)
+  # extra_body:  # provider options merged into every chat request (config file only)
+  #   provider:
+  #     data_collection: deny
+  #     zdr: true
 
 scan:
   max_window: "24h"  # longest history read per container per scan (quoted Go duration)
@@ -201,8 +207,8 @@ output:
   knowledge_retention_days: 30  # Retention period for knowledge base entries (1-365 days)
 
 privacy:
-  anonymize_ips: true
-  anonymize_secrets: true
+  anonymize_ips: true  # mask IP addresses as <IP-n> before sending logs to the LLM
+  anonymize_secrets: true  # mask passwords, tokens, keys as <SECRET>
 
 # Optional: Paths to custom prompt templates.
 # Leave empty to use the built-in defaults.
@@ -227,14 +233,30 @@ DLIA_PROMPTS_SYSTEM_PROMPT=./config/prompts/my_system_prompt.md
 DLIA_OUTPUT_KNOWLEDGE_RETENTION_DAYS=90
 DLIA_LLM_CONTEXT_WINDOW=128000
 DLIA_LLM_MAX_CHUNKS_PER_CONTAINER=10
+DLIA_LLM_MAX_ANSWER_TOKENS=4000
+DLIA_LLM_MAX_CHUNK_SUMMARY_TOKENS=2000
+DLIA_PRIVACY_ANONYMIZE_IPS=true
+DLIA_PRIVACY_ANONYMIZE_SECRETS=true
 DLIA_SCAN_MAX_WINDOW=24h
 ```
 
 ### Reliability Settings
 
-- **`llm.context_window`** (default `128000`, minimum `5625`) - The context window size of your model in tokens, not the answer length. It replaces `llm.max_tokens`, which is deprecated: it still works as an alias but prints a warning. Windows below 5625 are rejected at startup. For models unknown to the tokenizer, DLIA budgets 80% of the window because token counts are only estimates.
+- **`llm.context_window`** (default `128000`, minimum `5625` for the default answer limit) - The context window size of your model in tokens, not the answer length. It replaces `llm.max_tokens`, which is deprecated: it still works as an alias but prints a warning. The minimum follows `llm.max_answer_tokens`: it is `ceil((max_answer_tokens + 500) * 100 / 80)`, e.g. `5625` for `4000` and `8125` for `6000`. Smaller windows are rejected at startup. For models unknown to the tokenizer, DLIA budgets 80% of the window because token counts are only estimates.
 - **`llm.max_chunks_per_container`** (default `10`, at least `1`) - If the logs need more chunks than this, only the newest N chunks are analyzed. The rest is noted in the report.
+- **`llm.max_answer_tokens`** (default `4000`, at least `256`, env `DLIA_LLM_MAX_ANSWER_TOKENS`) - The maximum length of the model's answer for an analysis. It also sets the response reserve in the context budget, so a larger value raises the minimum `llm.context_window` (see above) and can cause logs to be split into more chunks.
+- **`llm.max_chunk_summary_tokens`** (default `2000`, at least `256`, env `DLIA_LLM_MAX_CHUNK_SUMMARY_TOKENS`) - The maximum length of the model's answer for each chunk summary.
+- **`llm.extra_body`** (optional, config file only, no environment variable) - A map of provider-specific options merged at the top level into every chat request. See [Privacy & provider choice](#privacy--provider-choice) for an example and the reserved keys. `dlia config` shows only the keys, never the values.
+- **`privacy.anonymize_ips`** / **`privacy.anonymize_secrets`** (both default `true`, env `DLIA_PRIVACY_ANONYMIZE_IPS` / `DLIA_PRIVACY_ANONYMIZE_SECRETS`) - Mask IP addresses as `<IP-n>` and secrets as `<SECRET>` before logs are sent to the LLM. Best effort, see [Privacy & provider choice](#privacy--provider-choice).
 - **`scan.max_window`** (default `"24h"`) - The longest history read per container per scan. It must be a quoted Go duration string such as `"24h"` or `"90m"` and at least `1m` (a bare number like `3600` is read as nanoseconds and rejected). An older gap is skipped and reported. `--lookback` is not capped by this setting. The first scan of a container reads the last hour.
+
+An answer that is cut off (`finish_reason=length`) or empty counts as a failed analysis. DLIA does not retry it and reports an error such as:
+
+```
+LLM answer for container nginx incomplete (finish_reason=length, limit 4000 tokens): raise llm.max_answer_tokens or lower the reasoning effort via llm.extra_body
+```
+
+To fix it, raise `llm.max_answer_tokens` (or `llm.max_chunk_summary_tokens` for chunk summaries; raise `llm.context_window` too if the validation asks for it), or lower the reasoning effort via `llm.extra_body`.
 
 If an LLM analysis fails, the container's scan cursor is not advanced, so the same window is retried on the next scan. The scan summary shows `Failed analyses: N (will be retried next scan)`.
 
@@ -363,6 +385,66 @@ The model is instructed to report instruction attempts found inside the data as 
 This applies automatically to custom prompt templates and custom system prompts. The template variables `{{.Logs}}`, `{{.Summaries}}` and `{{.ContainerAnalyses}}` already contain the markers, and the data rule is appended to the system prompt in code.
 
 **Best effort, not a guarantee.** Models can still be fooled. To keep content away from the model entirely, exclude it with `regexp_filters`.
+
+### Privacy & provider choice
+
+Before container logs are sent to the LLM, DLIA masks IP addresses and common secret formats. This is **best effort, not a guarantee**. It is on by default and controlled by `privacy.anonymize_ips` and `privacy.anonymize_secrets` (both default `true`).
+
+**What is masked as `<SECRET>`** (the key or prefix stays readable, only the value is replaced):
+
+- Private key blocks (`-----BEGIN ... PRIVATE KEY-----` to `-----END ... PRIVATE KEY-----`)
+- JSON Web Tokens
+- AWS access key IDs (`AKIA...`)
+- `Authorization:` header values (`Authorization: Basic dXNlcjpwYXNz` becomes `Authorization: <SECRET>`)
+- Bearer tokens (`Bearer abc.def-123` becomes `Bearer <SECRET>`)
+- Credentials in URLs (`https://user:pass@host` becomes `https://<SECRET>@host`)
+- Values of `password`, `passwd`, `pwd`, `secret`, `token`, `api_key` and `apikey`, as `key=value`, `key: value` or JSON (`"password":"hunter2"`). Keys with a prefix such as `access_token`, `client_secret` or `db_password` match too. `tokens_used` and `secretary` do not.
+
+**What is masked as `<IP-n>`:** IPv4 and IPv6 addresses (including ports, brackets and zone IDs), with the number `n` counting from 1 in order of first appearance. The same address always gets the same number within one container and scan.
+
+**What is not masked:**
+
+- Loopback (`127.0.0.0/8`, `::1`) and unspecified (`0.0.0.0`, `::`) addresses
+- Other personal data such as e-mail addresses or usernames
+- Secret formats that are not in the list above
+
+**Known false positives:** anything that is a valid IP address is masked, for example version strings like `1.2.3.4` or hex-only words like `dead::beef`.
+
+**Placeholders in output.** `<IP-n>` and `<SECRET>` also appear in reports and in the knowledge base. The numbering is per container per scan. To find the real value, look it up in the container logs at the time of the report.
+
+**Guaranteed exclusion.** To make sure something never reaches the model, exclude it with [`regexp_filters`](#cost-optimization-with-regexp-filters).
+
+**What still leaves your machine:** the masked log text, container names, your ignore instructions, and the prompts.
+
+#### Provider options with `llm.extra_body`
+
+`llm.extra_body` is merged at the top level into every chat request, so you can use provider-specific options. Example for OpenRouter:
+
+```yaml
+llm:
+  base_url: "https://openrouter.ai/api/v1"
+  extra_body:
+    provider:
+      data_collection: deny   # no data collection
+      zdr: true               # zero data retention
+    reasoning:
+      effort: low             # fewer reasoning tokens
+```
+
+- Also enable zero data retention (ZDR) in your OpenRouter account settings.
+- `reasoning.effort: none` is rejected by some models, for example GLM 5.3 Flash. Use `low` instead.
+- These keys are reserved and rejected at startup, because DLIA sets them itself (matching is case-insensitive): `model`, `messages`, `temperature`, `max_tokens`, `max_completion_tokens`, `stream`, `n`. Use `llm.max_answer_tokens` and `llm.max_chunk_summary_tokens` for the answer length.
+- Option names must be lowercase: the config loader lowercases map keys, so provider options with uppercase letters cannot be expressed.
+- `extra_body` is read from the config file only; there is no environment variable. `dlia config` shows only its keys, never its values.
+
+#### Local models
+
+If no log text should leave your machine, point `llm.base_url` at a local model, for example Ollama:
+
+```yaml
+llm:
+  base_url: "http://localhost:11434/v1"
+```
 
 ### Customizing AI Prompts
 

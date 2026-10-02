@@ -200,7 +200,7 @@ func TestRootCmd_HasFeatureDescriptions(t *testing.T) {
 		"LLM",
 		"Historical context",
 		"Privacy",
-		"anonymization",
+		"masking",
 		"notification",
 		"Shoutrrr",
 		"knowledge base",
